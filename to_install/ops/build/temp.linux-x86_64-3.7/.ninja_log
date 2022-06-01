@@ -1,0 +1,7 @@
+# ninja log v5
+4	3922	1653815666786574835	/workspace/TransCenterV2/TransCenter_official/to_install/ops/build/temp.linux-x86_64-3.7/workspace/TransCenterV2/TransCenter_official/to_install/ops/src/cpu/ms_deform_attn_cpu.o	f7bc9c7d4075dbad
+0	18637	1653815681486750049	/workspace/TransCenterV2/TransCenter_official/to_install/ops/build/temp.linux-x86_64-3.7/workspace/TransCenterV2/TransCenter_official/to_install/ops/src/vision.o	c2ac07ffde2afca0
+8	42355	1653815705191031744	/workspace/TransCenterV2/TransCenter_official/to_install/ops/build/temp.linux-x86_64-3.7/workspace/TransCenterV2/TransCenter_official/to_install/ops/src/cuda/ms_deform_attn_cuda.o	451d1d84cd91c11b
+4	3640	1653819395812158483	/workspace/TransCenterV2/to_install/ops/build/temp.linux-x86_64-3.7/workspace/TransCenterV2/to_install/ops/src/cpu/ms_deform_attn_cpu.o	c2ee7fd3a5bbf305
+0	18541	1653819410700270602	/workspace/TransCenterV2/to_install/ops/build/temp.linux-x86_64-3.7/workspace/TransCenterV2/to_install/ops/src/vision.o	8685f6b3becffc25
+9	42181	1653819434320450613	/workspace/TransCenterV2/to_install/ops/build/temp.linux-x86_64-3.7/workspace/TransCenterV2/to_install/ops/src/cuda/ms_deform_attn_cuda.o	30715857177897db

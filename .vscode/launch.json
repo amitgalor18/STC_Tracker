@@ -1,0 +1,23 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "args": [
+                "--data_dir",
+                "../../../data/MOT17",
+                "--output_dir",
+                "V2_mot17_fromCH_test_private"             
+            ],
+            "name": "Python: Current File",
+            "type": "python",
+            "python": "/root/miniconda3/envs/TransCenterV2/bin/python3.7",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+    ]
+}

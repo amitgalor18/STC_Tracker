@@ -1,0 +1,19 @@
+cd TransCenter_official
+
+train whole coco person:
+python -m torch.distributed.launch --nproc_per_node=4 --use_env ./training/main_coco.py --output_dir=./outputs/whole_coco --batch_size=4 --num_workers=8 --pre_hm --tracking --nheads 1 2 5 8 --num_encoder_layers 3 4 6 3 --dim_feedforward_ratio 8 8 4 4 --d_model 64 128 320 512 --data_dir=YourPathTo/cocodataset/
+
+train whole ch:
+python -m torch.distributed.launch --nproc_per_node=4 --use_env ./training/main_crowdHuman.py --output_dir=./outputs/whole_ch_from_COCO --batch_size=4 --num_workers=8 --resume=./model_zoo/coco_pretrained.pth --pre_hm --tracking --nheads 1 2 5 8 --num_encoder_layers 3 4 6 3 --dim_feedforward_ratio 8 8 4 4 --d_model 64 128 320 512 --data_dir=YourPathTo/crowd_human/
+
+MOT17 from coco:
+python -m torch.distributed.launch --nproc_per_node=2 --use_env ./training/main_mot17.py --output_dir=./outputs/mot17_from_coco --batch_size=4 --num_workers=8 --data_dir=YourPathTo/MOT17/ --epochs=50 --lr_drop=40 --nheads 1 2 5 8 --num_encoder_layers 3 4 6 3 --dim_feedforward_ratio 8 8 4 4 --d_model 64 128 320 512 --pre_hm --tracking --resume=./model_zoo/coco_pretrained.pth --same_aug_pre --image_blur_aug --clip_max_norm=35
+
+MOT17 mix CH:
+python -m torch.distributed.launch --nproc_per_node=2 --use_env ./training/main_mot17_mix_ch.py --output_dir=./outputs/CH_mot17 --batch_size=4 --num_workers=8 --data_dir=YourPathTo/MOT17/  --data_dir_ch=YourPathTo/crowd_human/ --epochs=150 --lr_drop=100 --nheads 1 2 5 8 --num_encoder_layers 3 4 6 3 --dim_feedforward_ratio 8 8 4 4 --d_model 64 128 320 512 --pre_hm --tracking --same_aug_pre --image_blur_aug --clip_max_norm=35
+
+MOT20 from coco:
+python -m torch.distributed.launch --nproc_per_node=2 --use_env ./training/main_mot20.py --output_dir=./outputs/mot20_from_coco --batch_size=4 --num_workers=8 --data_dir=YourPathTo/MOT20/ --epochs=50 --lr_drop=40 --nheads 1 2 5 8 --num_encoder_layers 3 4 6 3 --dim_feedforward_ratio 8 8 4 4 --d_model 64 128 320 512 --pre_hm --tracking --resume=./model_zoo/coco_pretrained.pth --same_aug_pre --image_blur_aug --clip_max_norm=35
+
+MOT20 from CH:
+python -m torch.distributed.launch --nproc_per_node=2 --use_env ./training/main_mot20_mix_ch.py --output_dir=./outputs/CH_mot20 --batch_size=4 --num_workers=8 --data_dir=YourPathTo/MOT20/  --data_dir_ch=YourPathTo/crowd_human/ --epochs=150 --lr_drop=100 --nheads 1 2 5 8 --num_encoder_layers 3 4 6 3 --dim_feedforward_ratio 8 8 4 4 --d_model 64 128 320 512 --pre_hm --tracking --same_aug_pre --image_blur_aug --clip_max_norm=35

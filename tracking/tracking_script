@@ -1,0 +1,38 @@
+cd TransCenter_official
+
+TransCenter V2:
+MOT17:
+
+private:
+python ./tracking/mot17_private_test.py --data_dir=YourPathTo/MOT17/
+
+public:
+python ./tracking/mot17_pub_test.py --data_dir=YourPathTo/MOT17/
+
+MOT20:
+
+private:
+python ./tracking/mot20_private_test.py --data_dir=YourPathTo/MOT20/
+
+public:
+python ./tracking/mot20_pub_test.py --data_dir=YourPathTo/MOT20/
+
+TransCenter-Lite:
+
+MOT17:
+
+private:
+python ./tracking/mot17_private_lite_test.py --data_dir=YourPathTo/MOT17/
+
+public:
+python ./tracking/mot17_pub_lite_test.py --data_dir=YourPathTo/MOT17/
+
+MOT20:
+
+private:
+python ./tracking/mot20_private_lite_test.py --data_dir=YourPathTo/MOT20/
+
+public:
+python ./tracking/mot20_pub_lite_test.py --data_dir=YourPathTo/MOT20/
+
+
