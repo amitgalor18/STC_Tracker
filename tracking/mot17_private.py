@@ -47,6 +47,7 @@ from torch.utils.data import DataLoader
 from shutil import copyfile
 torch.set_grad_enabled(False)
 import time
+
 torch.backends.cudnn.benchmark = True
 curr_pth = '/'.join(osp.dirname(__file__).split('/'))
 
@@ -159,8 +160,8 @@ def write_results(all_tracks, out_dir, seq_name=None, frame_offset=0):
                 y1 = bb[1]
                 x2 = bb[2]
                 y2 = bb[3]
-                writer.writerow([frame+frame_offset, i+1, x1+1, y1+1, x2-x1+1, y2-y1+1, -1, -1, -1, -1])
-
+                writer.writerow([frame+1, i+1, x1+1, y1+1, x2-x1+1, y2-y1+1, -1, -1, -1, -1])
+                # was frame+frame_offset. TODO: bring back if we don't want to reset val results at frame 0
     # copy to FRCNN, DPM.txt, private setting
     copyfile(file, file[:-7]+"FRCNN.txt")
     copyfile(file, file[:-7]+"DPM.txt")
@@ -181,7 +182,7 @@ def main(tracktor):
     main_args.iou_recover = True
 
     device = torch.device(main_args.device)
-    ds = GenericDataset_val(root=main_args.data_dir, valset='val', select_seq='SDP', train_ratio=1) #Amit: added train_ratio of 1 to validate over all the seq and not only last 0.25
+    ds = GenericDataset_val(root=main_args.data_dir, valset='val', select_seq='SDP', train_ratio=0.6667) #Amit: added train_ratio of 1 to validate over all the seq and not only last 0.25
 
     ds.default_resolution[0], ds.default_resolution[1] = main_args.input_h, main_args.input_w
     print(main_args.input_h, main_args.input_w)
@@ -190,12 +191,13 @@ def main(tracktor):
     main_args.input_res = max(main_args.input_h, main_args.input_w)
     main_args.output_res = max(main_args.output_h, main_args.output_w)
     # threshold
-    main_args.track_thresh = 0.3
+    # main_args.track_thresh = 0.3 #take parser threshold
     main_args.match_thresh = tracktor['tracker']["match_thresh"]
 
     model, criterion, postprocessors = build_model(main_args)
     n_parameters = sum(p.numel() for p in model.parameters())
     print('number of params:', n_parameters)
+    
 
 
     # tracker
@@ -210,13 +212,14 @@ def main(tracktor):
     data_loader = DataLoader(ds, 1, shuffle=False, drop_last=False, num_workers=8,
                              pin_memory=True, collate_fn=collate_fn)
 
+
     models = [
     #  "./model_zoo/MOT17_coco.pth",
      "./model_zoo/MOT17_ch.pth",
     ]
     output_dirs = [
         # curr_pth + '/test_models/MOT17_test_coco/',
-        curr_pth + '/test_models/MOT17_test_ch/',
+        curr_pth + '/test_models/' + main_args.output_dir   # MOT17_test_ch/',
     ]
 
     for model_dir, output_dir in zip(models, output_dirs):
@@ -244,8 +247,8 @@ def main(tracktor):
             # if os.path.exists(output_dir + "txt/" + video_name + '.txt'):
             
                 #continue
-            if video_name != 'MOT17-13-SDP':
-                continue
+            # if video_name != 'MOT17-13-SDP':
+                # continue
 
             if video_name != pre_seq_name:
                 print("video_name", video_name)

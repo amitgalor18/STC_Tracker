@@ -166,7 +166,7 @@ class Tracker:
                                     pre2cur_cts[:, [1]] + 0.5 * pos_h], dim=1)
 
             # index low-score dets #
-            inds_low = raw_scores > 0.1
+            inds_low = raw_scores > self.main_args.track_thresh  # was 0.1 TODO: change back after testing 
             inds_high = raw_scores < self.main_args.track_thresh
             inds_second = torch.logical_and(inds_low, inds_high)
             dets_second = raw_dets[inds_second]
