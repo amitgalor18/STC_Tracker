@@ -166,7 +166,7 @@ class Tracker:
                                     pre2cur_cts[:, [1]] + 0.5 * pos_h], dim=1)
 
             # index low-score dets #
-            inds_low = raw_scores > self.main_args.track_thresh  # was 0.1 TODO: change back after testing 
+            inds_low = raw_scores > 0.1  # was 0.1 TODO: change back after testing 
             inds_high = raw_scores < self.main_args.track_thresh
             inds_second = torch.logical_and(inds_low, inds_high)
             dets_second = raw_dets[inds_second]
@@ -502,7 +502,7 @@ class Tracker:
         # Create new tracks #
         #####################
         # filter birth candidates by scores
-        valid_dets_idx = det_scores >= self.det_thresh
+        valid_dets_idx = det_scores >= self.det_thresh  # track_thresh+0.1
         det_pos = det_pos[valid_dets_idx]
         det_scores = det_scores[valid_dets_idx]
         dets_features_birth = dets_features_birth[valid_dets_idx]

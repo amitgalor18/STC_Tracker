@@ -47,6 +47,7 @@ from torch.utils.data import DataLoader
 from shutil import copyfile
 torch.set_grad_enabled(False)
 import time
+from StrongSORT.AFLink.AppFreeLink import *
 
 torch.backends.cudnn.benchmark = True
 curr_pth = '/'.join(osp.dirname(__file__).split('/'))
@@ -130,6 +131,9 @@ def get_args_parser():
 
     parser.add_argument('--mode', default='duel vit', type=str)
 
+    parser.add_argument('--custom', default=None, help='run on a single video for debugging')
+    parser.add_argument('--AFLink', default=False, help='run AFLink to combine trackers')
+
 
     return parser
 
@@ -166,6 +170,17 @@ def write_results(all_tracks, out_dir, seq_name=None, frame_offset=0):
     copyfile(file, file[:-7]+"FRCNN.txt")
     copyfile(file, file[:-7]+"DPM.txt")
 
+def do_AFLink(model,outpath, dataset):
+    linker = AFLink(
+            path_in=outpath,
+            path_out=outpath,
+            model=model,
+            dataset=dataset,
+            thrT=(0, 30),  # (-10, 30) for CenterTrack, FairMOT, TransTrack.
+            thrS=75,
+            thrP=0.05  # 0.10 for CenterTrack, FairMOT, TransTrack.
+            )
+    linker.link()
 
 def main(tracktor):
     torch.manual_seed(tracktor['seed'])
@@ -180,6 +195,7 @@ def main(tracktor):
     main_args.clip = False
     main_args.fuse_scores = True
     main_args.iou_recover = True
+    selected_seq = main_args.custom
 
     device = torch.device(main_args.device)
     ds = GenericDataset_val(root=main_args.data_dir, valset='val', select_seq='SDP', train_ratio=0.6667) #Amit: added train_ratio of 1 to validate over all the seq and not only last 0.25
@@ -191,7 +207,7 @@ def main(tracktor):
     main_args.input_res = max(main_args.input_h, main_args.input_w)
     main_args.output_res = max(main_args.output_h, main_args.output_w)
     # threshold
-    # main_args.track_thresh = 0.3 #take parser threshold
+    main_args.track_thresh = float(main_args.track_thresh) #was 0.3 #take parser threshold
     main_args.match_thresh = tracktor['tracker']["match_thresh"]
 
     model, criterion, postprocessors = build_model(main_args)
@@ -222,6 +238,13 @@ def main(tracktor):
         curr_pth + '/test_models/' + main_args.output_dir   # MOT17_test_ch/',
     ]
 
+    # add AFlink model
+    if main_args.AFLink:
+        path_AFLink = './StrongSORT/AFLink/AFLink_epoch20.pth'
+        AFmodel = PostLinker()
+        AFmodel.load_state_dict(torch.load(path_AFLink))
+        dataset = LinkData(main_args.data_dir+'/train/', 'val')
+
     for model_dir, output_dir in zip(models, output_dirs):
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
@@ -247,10 +270,12 @@ def main(tracktor):
             # if os.path.exists(output_dir + "txt/" + video_name + '.txt'):
             
                 #continue
-            # if video_name != 'MOT17-13-SDP':
-                # continue
+            
+            if selected_seq is not None and video_name != selected_seq:
+                continue
 
             if video_name != pre_seq_name:
+                print('selected seq: ',selected_seq)
                 print("video_name", video_name)
                 # save results #
                 if idx != 0: #not os.path.exists(output_dir + "txt/" + pre_seq_name + '.txt') and
@@ -259,6 +284,10 @@ def main(tracktor):
                     print(f"Tracks found: {len(results)}")
                     print(f"Runtime for {pre_seq_name}: {time.time() - start :.2f} s.")
                     write_results(results, tracktor['output_dir'], seq_name=pre_seq_name, frame_offset=frame_offset)
+                    if main_args.AFLink:
+                        if main_args.custom is None: #running on all seqs => do AFlink on previous seq if exists
+                            do_AFLink(AFmodel,osp.join(output_dir + "/txt/", pre_seq_name+'.txt'),dataset)
+
                 if os.path.exists(output_dir + "txt/" + video_name + '.txt'):
                     print(output_dir + "txt/" + video_name + '.txt exists. Overwriting')
                 # update pre_seq_name #
@@ -306,11 +335,15 @@ def main(tracktor):
             first_frame = False
 
         # save last results #
+        if main_args.custom is not None: #if custom seq was chosen, write only this one
+            video_name = selected_seq
         if not os.path.exists(output_dir + "txt/" + video_name + '.txt'):
             # save results #
             results = tracker.get_results()
             print(f"Tracks found: {len(results)}")
             write_results(results, tracktor['output_dir'], seq_name=video_name, frame_offset=frame_offset)
+            if main_args.AFLink:
+                do_AFLink(AFmodel,osp.join(output_dir + "/txt/", video_name+'.txt'),dataset)
 
 
 with open(curr_pth + '/cfgs/transcenter_cfg.yaml', 'r') as f:
