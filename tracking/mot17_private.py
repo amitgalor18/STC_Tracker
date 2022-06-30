@@ -48,6 +48,7 @@ from shutil import copyfile
 torch.set_grad_enabled(False)
 import time
 from StrongSORT.AFLink.AppFreeLink import *
+from StrongSORT.GSI import GSInterpolation
 
 torch.backends.cudnn.benchmark = True
 curr_pth = '/'.join(osp.dirname(__file__).split('/'))
@@ -133,6 +134,7 @@ def get_args_parser():
 
     parser.add_argument('--custom', default=None, help='run on a single video for debugging')
     parser.add_argument('--AFLink', default=False, help='run AFLink to combine trackers')
+    parser.add_argument('--GSI', default=False, help= 'run GSI to interpolate missed detections')
 
 
     return parser
@@ -176,11 +178,18 @@ def do_AFLink(model,outpath, dataset):
             path_out=outpath,
             model=model,
             dataset=dataset,
-            thrT=(0, 30),  # (-10, 30) for CenterTrack, FairMOT, TransTrack.
+            thrT=(-10, 30),  # (-10, 30) for CenterTrack, FairMOT, TransTrack. TODO: change back to 0 after testing
             thrS=75,
-            thrP=0.05  # 0.10 for CenterTrack, FairMOT, TransTrack.
+            thrP=0.1  # 0.10 for CenterTrack, FairMOT, TransTrack. TODO: change back to 0.05 after testing 
             )
     linker.link()
+def do_GSI(outpath):
+    GSInterpolation(
+                path_in=outpath,
+                path_out=outpath,
+                interval=15, #was 20
+                tau=10
+            )
 
 def main(tracktor):
     torch.manual_seed(tracktor['seed'])
@@ -194,11 +203,11 @@ def main(tracktor):
     main_args.tracking = True
     main_args.clip = False
     main_args.fuse_scores = True
-    main_args.iou_recover = True
+    main_args.iou_recover = True #was True. added fused recover of appearance and iou
     selected_seq = main_args.custom
 
     device = torch.device(main_args.device)
-    ds = GenericDataset_val(root=main_args.data_dir, valset='val', select_seq='SDP', train_ratio=0.6667) #Amit: added train_ratio of 1 to validate over all the seq and not only last 0.25
+    ds = GenericDataset_val(root=main_args.data_dir, valset='val', select_seq='SDP', train_ratio=1) #Amit: added train_ratio of 1 to validate over all the seq and not only last 0.25. change to 0.667 to val on last 0.5
 
     ds.default_resolution[0], ds.default_resolution[1] = main_args.input_h, main_args.input_w
     print(main_args.input_h, main_args.input_w)
@@ -287,6 +296,9 @@ def main(tracktor):
                     if main_args.AFLink:
                         if main_args.custom is None: #running on all seqs => do AFlink on previous seq if exists
                             do_AFLink(AFmodel,osp.join(output_dir + "/txt/", pre_seq_name+'.txt'),dataset)
+                    if main_args.GSI:
+                        if main_args.custom is None: #running on all seqs => do GSI on previous seq if exists
+                            do_GSI(osp.join(output_dir + "/txt/", pre_seq_name+'.txt'))
 
                 if os.path.exists(output_dir + "txt/" + video_name + '.txt'):
                     print(output_dir + "txt/" + video_name + '.txt exists. Overwriting')
@@ -344,7 +356,8 @@ def main(tracktor):
             write_results(results, tracktor['output_dir'], seq_name=video_name, frame_offset=frame_offset)
             if main_args.AFLink:
                 do_AFLink(AFmodel,osp.join(output_dir + "/txt/", video_name+'.txt'),dataset)
-
+            if main_args.GSI:
+                do_GSI(osp.join(output_dir + "/txt/", video_name+'.txt'))
 
 with open(curr_pth + '/cfgs/transcenter_cfg.yaml', 'r') as f:
     tracktor = yaml.load(f)['tracktor']

@@ -52,7 +52,26 @@ from torchvision.ops.boxes import clip_boxes_to_image, nms
 import lap
 from post_processing.decode import generic_decode
 from util import box_ops
+import matplotlib.pyplot as plt
+import cv2
 
+def transparent_cmap(cmap, N=255):
+        "Copy colormap and set alpha values"
+        mycmap = cmap
+        mycmap._init()
+        mycmap._lut[:,-1] = np.linspace(0, 0.8, N+4)
+        return mycmap
+
+chi2inv95 = {
+    1: 3.8415,
+    2: 5.9915,
+    3: 7.8147,
+    4: 9.4877,
+    5: 11.070,
+    6: 12.592,
+    7: 14.067,
+    8: 15.507,
+    9: 16.919}
 
 class Tracker:
     """The main tracking file, here is where magic happens."""
@@ -144,6 +163,7 @@ class Tracker:
             ))
         self.track_num += num_new
 
+
     def tracks_dets_matching_tracking(self, raw_dets, raw_scores, pre2cur_cts, pos=None, reid_cts=None, reid_feats=None):
         """
         raw_dets and raw_scores are clean (only ped class and filtered by a threshold
@@ -193,11 +213,34 @@ class Tracker:
 
                 # todo recover inactive tracks here ?
 
+                det_feats = F.grid_sample(reid_feats, reid_cts_keep.unsqueeze(0).unsqueeze(0),
+                                              mode='bilinear', padding_mode='zeros', align_corners=False)[:, :, 0, :] #was after assignment, moved to try appearance matching
                 matches, u_track, u_detection = self.linear_assignment(iou_dist.cpu().numpy(),
                                                                        thresh=self.main_args.match_thresh)
 
-                det_feats = F.grid_sample(reid_feats, reid_cts_keep.unsqueeze(0).unsqueeze(0),
-                                              mode='bilinear', padding_mode='zeros', align_corners=False)[:, :, 0, :]
+                # try fuse matching (appearance and iou) TODO: return iou matching if doesn't work
+                # dist_mat, pos = [], []
+                # for t in self.tracks:
+                    # dist_mat.append(torch.cat([t.test_features(feat.view(1, -1))
+                                            #    for feat in det_feats], dim=1))
+                    # pos.append(t.pos)
+                # if len(dist_mat) > 1:
+                    # dist_mat = torch.cat(dist_mat, 0)
+                    # pos = torch.cat(pos, 0)
+                # else:
+                    # dist_mat = dist_mat[0]
+                    # pos = pos[0]
+                # dist_mat_np = dist_mat.cpu().numpy()
+                # lambda_ = 0.5
+                
+                # for row, tracks in enumerate(self.tracks):
+
+                    # dist_mat_np[row] = lambda_ * dist_mat_np[row] + (1 - lambda_) * iou_dist.cpu().numpy()[row]
+
+                    # assigned by appearance & iou fuse
+                # matches, u_track, u_detection = self.linear_assignment(dist_mat_np,
+                                                                        #    thresh=self.match_thresh)
+                
 
 
                 if matches.shape[0] > 0:
@@ -270,7 +313,7 @@ class Tracker:
                 self.new_tracks.append(t)
         self.tracks = self.new_tracks
 
-        return [pos_birth, scores_birth, dets_features_birth]
+        # return [pos_birth, scores_birth, dets_features_birth]
 
     def detect_tracking_duel_vit(self, batch):
 
@@ -318,6 +361,23 @@ class Tracker:
 
         out_scores = decoded['scores'][0]
         labels_out = decoded['clses'][0].int() + 1
+        #print hm - selected frames#
+        frame_num = int(batch['frame_name'][-8:-4])
+        if frame_num>636 and frame_num<636: #only printing heatmaps for debugging in selected frames
+            image = Image.fromarray((255*batch['img'])[0].permute(1, 2, 0).cpu().numpy().astype(np.uint8), 'RGB')
+            tensor_hm = output['hm'][0,0,:]
+            w, h = image.size
+            y, x = np.mgrid[0:h, 0:w]
+            hm_np = tensor_hm.cpu().numpy()
+            hm_r = cv2.resize(hm_np, dsize=(w, h), interpolation=cv2.INTER_CUBIC)
+            mycmap = transparent_cmap(plt.cm.YlOrRd) #was Reds
+            fig, ax1 = plt.subplots(1, 1)
+            ax1.imshow(image)
+            cb = ax1.contourf(x,y,hm_r, cmap=mycmap)
+            plt.colorbar(cb)
+            frame_nums = batch['frame_name'][-8:-4]
+            name="hm_for_17-11_frame_" +frame_nums + ".png"
+            plt.savefig(name)
 
         # # reid features #
         # torch.Size([1, 64, 152, 272])
@@ -358,6 +418,19 @@ class Tracker:
         # post processing #
 
         return out_boxes, out_scores, pre2cur_cts, mypos, reid_cts, outputs['reid'][0]
+
+    def fuse_motion(kf, cost_matrix, tracks, detections, only_position=False, lambda_=0.98):
+        if cost_matrix.size == 0:
+            return cost_matrix
+        gating_dim = 2 if only_position else 4
+        gating_threshold = chi2inv95[gating_dim]
+        measurements = np.asarray([det.to_xyah() for det in detections])
+        for row, track in enumerate(tracks):
+            gating_distance = kf.gating_distance(
+                track.mean, track.covariance, measurements, only_position, metric='maha')
+            cost_matrix[row, gating_distance > gating_threshold] = np.inf
+            cost_matrix[row] = lambda_ * cost_matrix[row] + (1 - lambda_) * gating_distance
+        return cost_matrix
 
     def get_pos(self):
         """Get the positions of all active tracks."""
@@ -408,7 +481,8 @@ class Tracker:
                 else:
                     dist_mat = dist_mat[0]
                     pos = pos[0]
-
+                dist_mat_np = dist_mat.cpu().numpy()
+                
                 # # calculate IoU distances
                 if self.main_args.iou_recover:
                     iou_dist = 1 - box_ops.generalized_box_iou(pos, new_det_pos)
@@ -417,8 +491,15 @@ class Tracker:
                                                                            thresh=self.main_args.match_thresh)
                 else:
 
+                    #assigned by fusing iou and appearance
+                    # lambda_ = 0.2
+                    # iou_dist = 1 - box_ops.generalized_box_iou(pos, new_det_pos)
+                    # for row, tracks in enumerate(self.inactive_tracks):
+
+                        # dist_mat_np[row] = lambda_ * dist_mat_np[row] + (1 - lambda_) * iou_dist.cpu().numpy()[row]
+
                     # assigned by appearance
-                    matches, u_track, u_detection = self.linear_assignment(dist_mat.cpu().numpy(),
+                    matches, u_track, u_detection = self.linear_assignment(dist_mat_np,
                                                                            thresh=self.reid_sim_threshold)
 
                 assigned = []
@@ -469,15 +550,16 @@ class Tracker:
             self.pre_sample = self.sample
 
         # # plot #
-        # img_pil = Image.fromarray((255*blob['img'])[0].permute(1, 2, 0).cpu().numpy().astype(np.uint8), 'RGB')
-        # img_draw = ImageDraw.Draw(img_pil)
+        # if int(blob['frame_name'][:-4])>62:
+            # img_pil = Image.fromarray((255*blob['img'])[0].permute(1, 2, 0).cpu().numpy().astype(np.uint8), 'RGB')
+            # img_draw = ImageDraw.Draw(img_pil)
         # #
-        # if self.last_image is not None:
-        #     pre_img_pil = Image.fromarray((255 * self.last_image)[0].permute(1, 2, 0).cpu().numpy().astype(np.uint8), 'RGB')
-        #     pre_img_draw = ImageDraw.Draw(pre_img_pil)
-        # else:
-        #     pre_img_pil = img_pil
-        #     pre_img_draw = img_draw
+            # if self.last_image is not None:
+                # pre_img_pil = Image.fromarray((255 * self.last_image)[0].permute(1, 2, 0).cpu().numpy().astype(np.uint8), 'RGB')
+                # pre_img_draw = ImageDraw.Draw(pre_img_pil)
+            # else:
+                # pre_img_pil = img_pil
+                # pre_img_draw = img_draw
         # # # # plot #
 
         ###########################
