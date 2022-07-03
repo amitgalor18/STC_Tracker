@@ -210,6 +210,7 @@ class Tracker:
                     iou_dist *= scores_keep[None, :]
 
                 iou_dist = 1 - iou_dist
+                
 
                 # todo recover inactive tracks here ?
 
@@ -218,7 +219,7 @@ class Tracker:
                 matches, u_track, u_detection = self.linear_assignment(iou_dist.cpu().numpy(),
                                                                        thresh=self.main_args.match_thresh)
 
-                # try fuse matching (appearance and iou) TODO: return iou matching if doesn't work
+                # try fuse matching (appearance and iou) 
                 # dist_mat, pos = [], []
                 # for t in self.tracks:
                     # dist_mat.append(torch.cat([t.test_features(feat.view(1, -1))
@@ -313,7 +314,7 @@ class Tracker:
                 self.new_tracks.append(t)
         self.tracks = self.new_tracks
 
-        # return [pos_birth, scores_birth, dets_features_birth]
+        return [pos_birth, scores_birth, dets_features_birth]
 
     def detect_tracking_duel_vit(self, batch):
 
@@ -507,7 +508,9 @@ class Tracker:
                 if matches.shape[0] > 0:
                     for r, c in zip(matches[:, 0], matches[:, 1]):
                         # inactive tracks reactivation #
-                        if dist_mat[r, c] <= self.reid_sim_threshold or not self.main_args.iou_recover:
+                        # print('dist:', dist_mat_np[r, c])
+                        # print('sim threshold:', self.reid_sim_threshold)
+                        if dist_mat[r, c] <= self.reid_sim_threshold: #or not self.main_args.iou_recover: #TODO: used to depend on iou, remove if doesn't work
                             t = self.inactive_tracks[r]
                             self.tracks.append(t)
                             t.count_inactive = 0
