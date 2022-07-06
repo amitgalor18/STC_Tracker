@@ -54,6 +54,7 @@ from post_processing.decode import generic_decode
 from util import box_ops
 import matplotlib.pyplot as plt
 import cv2
+from BOTSORT.tracker.gmc import GMC
 
 def transparent_cmap(cmap, N=255):
         "Copy colormap and set alpha values"
@@ -78,7 +79,7 @@ class Tracker:
     # only track pedestrian
     cl = 1
 
-    def __init__(self, obj_detect, reid_network, flownet, tracker_cfg, postprocessor=None, main_args=None):
+    def __init__(self, obj_detect, reid_network, flownet, tracker_cfg, postprocessor=None, main_args=None, seq_name=None):
 
         self.obj_detect = obj_detect
         self.public_detections = tracker_cfg['public_detections']
@@ -105,8 +106,9 @@ class Tracker:
         self.pre_encoder_pos_encoding = None
         self.flow = None
         self.det_thresh = main_args.track_thresh + 0.1
+        
 
-    def reset(self, hard=True):
+    def reset(self, hard=True, seq_name=None):
         self.tracks = []
         self.inactive_tracks = []
         self.last_image = None
@@ -117,6 +119,7 @@ class Tracker:
         self.pre_encoder_pos_encoding = None
         self.flow = None
         self.obj_detect.masks_flatten = None
+        self.gmc = GMC(method='file', verbose=[seq_name, False]) #Amit: added for camera correction
 
         if hard:
             self.track_num = 0
@@ -161,10 +164,9 @@ class Tracker:
                 self.max_features_num,
                 self.motion_model_cfg['n_steps'] if self.motion_model_cfg['n_steps'] > 0 else 1
             ))
-        self.track_num += num_new
+        self.track_num += num_new 
 
-
-    def tracks_dets_matching_tracking(self, raw_dets, raw_scores, pre2cur_cts, pos=None, reid_cts=None, reid_feats=None):
+    def tracks_dets_matching_tracking(self, raw_dets, raw_scores, pre2cur_cts, pos=None, reid_cts=None, reid_feats=None, batch = None):
         """
         raw_dets and raw_scores are clean (only ped class and filtered by a threshold
         """
@@ -180,10 +182,12 @@ class Tracker:
             pos_w = pos[:, [2]] - pos[:, [0]]
             pos_h = pos[:, [3]] - pos[:, [1]]
 
-            warped_pos = torch.cat([pre2cur_cts[:, [0]] - 0.5 * pos_w,
-                                    pre2cur_cts[:, [1]] - 0.5 * pos_h,
-                                    pre2cur_cts[:, [0]] + 0.5 * pos_w,
-                                    pre2cur_cts[:, [1]] + 0.5 * pos_h], dim=1)
+            # warped_pos = torch.cat([pre2cur_cts[:, [0]] - 0.5 * pos_w,
+                                    # pre2cur_cts[:, [1]] - 0.5 * pos_h,
+                                    # pre2cur_cts[:, [0]] + 0.5 * pos_w,
+                                    # pre2cur_cts[:, [1]] + 0.5 * pos_h], dim=1)
+            warp = self.gmc.apply(batch['img'])
+            warped_pos = Track.multi_gmc(self.tracks, warp) #TODO: change to track.pos
 
             # index low-score dets #
             inds_low = raw_scores > 0.1  # was 0.1 TODO: change back after testing 
@@ -579,7 +583,7 @@ class Tracker:
 
             [det_pos, det_scores, dets_features_birth] = self.tracks_dets_matching_tracking(
                 raw_dets=det_pos, raw_scores=det_scores, pre2cur_cts=pre2cur_cts, pos=mypos, reid_cts=reid_cts,
-                reid_feats=reid_features)
+                reid_feats=reid_features, batch = blob)
         else:
             dets_features_birth = F.grid_sample(reid_features, reid_cts.unsqueeze(0).unsqueeze(0), mode='bilinear', padding_mode='zeros', align_corners=False)[:, :, 0, :].transpose(1, 2)[0]
 
@@ -702,6 +706,9 @@ class Track(object):
         self.last_pos = deque([pos.clone()], maxlen=mm_steps + 1)
         self.last_v = torch.Tensor([])
         self.gt_id = None
+        self.mean = pos.cpu().numpy()
+        epsilon = 1e-8
+        self.covariance = np.ones((4, 4)) * epsilon
 
     def has_positive_area(self):
         return self.pos[0, 2] > self.pos[0, 0] and self.pos[0, 3] > self.pos[0, 1]
@@ -725,3 +732,27 @@ class Track(object):
     def reset_last_pos(self):
         self.last_pos.clear()
         self.last_pos.append(self.pos.clone())
+    
+    @staticmethod
+    def multi_gmc(stracks, H=np.eye(2, 3)):
+        if len(stracks) > 0:
+            multi_mean = np.asarray([st.mean.copy() for st in stracks])
+            multi_covariance = np.asarray([st.covariance for st in stracks])
+
+            R = H[:2, :2] #size (2,2)
+            R8x8 = np.kron(np.eye(4, dtype=float), R) #size (8, 8) 
+            R4x4 = np.kron(np.eye(2, dtype=float), R) #size (4, 4)
+            t = H[:2, 2]
+            means = []
+            for i, (mean, cov) in enumerate(zip(multi_mean, multi_covariance)):
+                # mean = R8x8.dot(mean)
+                mean = R4x4.dot(mean) # changed since mean is now a 4x1 vector
+                mean[:2] += t
+                cov = R8x8.dot(cov).dot(R8x8.transpose())
+
+                stracks[i].mean = mean
+                stracks[i].covariance = cov
+                means.append(mean)
+
+
+            return means

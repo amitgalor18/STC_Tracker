@@ -49,6 +49,8 @@ torch.set_grad_enabled(False)
 import time
 from StrongSORT.AFLink.AppFreeLink import *
 from StrongSORT.GSI import GSInterpolation
+from BOTSORT.tracker.gmc import GMC
+
 
 torch.backends.cudnn.benchmark = True
 curr_pth = '/'.join(osp.dirname(__file__).split('/'))
@@ -178,16 +180,16 @@ def do_AFLink(model,outpath, dataset):
             path_out=outpath,
             model=model,
             dataset=dataset,
-            thrT=(-10, 30),  # (-10, 30) for CenterTrack, FairMOT, TransTrack. TODO: change back to 0 after testing
+            thrT=(-10, 30),  # (-10, 30) for CenterTrack, FairMOT, TransTrack. Turns out better than (0, 30) for TCV2
             thrS=75,
-            thrP=0.1  # 0.10 for CenterTrack, FairMOT, TransTrack. TODO: change back to 0.05 after testing 
+            thrP=0.1  # 0.10 for CenterTrack, FairMOT, TransTrack. Turns out better than 0.05 for TCV2
             )
     linker.link()
 def do_GSI(outpath):
     GSInterpolation(
                 path_in=outpath,
                 path_out=outpath,
-                interval=15, #was 20
+                interval=15, #was 20, best: 15
                 tau=10
             )
 
@@ -309,7 +311,7 @@ def main(tracktor):
                 pub_dets = ds.VidPubDet[video_name]
 
                 # reset tracker #
-                tracker.reset()
+                tracker.reset(seq_name=video_name)
                 # update inactive patience according to framerate
                 seq_info_path = os.path.join(main_args.data_dir, "train", video_name, 'seqinfo.ini')
                 print("seq_info_path ", seq_info_path)
