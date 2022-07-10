@@ -185,10 +185,12 @@ class Tracker:
             # warped_pos = torch.cat([pre2cur_cts[:, [0]] - 0.5 * pos_w,
                                     # pre2cur_cts[:, [1]] - 0.5 * pos_h,
                                     # pre2cur_cts[:, [0]] + 0.5 * pos_w,
-                                    # pre2cur_cts[:, [1]] + 0.5 * pos_h], dim=1)
-            warp = self.gmc.apply(batch['img'])
-            warped_pos = Track.multi_gmc(self.tracks, warp) #TODO: change to track.pos
+                                    # pre2cur_cts[:, [1]] + 0.5 * pos_h], dim=1) #TODO: reinstate if gmc doesn't work
 
+            # warp positions to current frame using gmc #
+            warp = self.gmc.apply(batch['img'])
+            warped_pos = Track.multi_gmc(self.tracks, warp) 
+            warped_pos = Track.tlwh_pos_to_tlbr(warped_pos) #transcenter works with tlbr pos but the mean is in tlwh pos
             # index low-score dets #
             inds_low = raw_scores > 0.1  # was 0.1 TODO: change back after testing 
             inds_high = raw_scores < self.main_args.track_thresh
@@ -254,6 +256,7 @@ class Tracker:
                     for idx_track, idx_det in zip(matches[:, 0], matches[:, 1]):
                         t = self.tracks[idx_track]
                         t.pos = dets[[idx_det]]
+                        t.mean = Track.tlbr_pos_to_tlwh(t.pos) #added for gmc
                         t.add_features(det_feats[:, :, idx_det])
                         t.score = scores_keep[[idx_det]]
 
@@ -297,6 +300,7 @@ class Tracker:
                             # print("low score match:", idx_track)
                             t = self.tracks[idx_track]
                             t.pos = dets_second[[idx_det]]
+                            t.mean = Track.tlbr_pos_to_tlwh(t.pos) #added for gmc
                             gather_feat_t = second_det_feats[:, :, cc]
                             t.add_features(gather_feat_t)
                             t.score = scores_second[[idx_det]]
@@ -313,6 +317,7 @@ class Tracker:
         for i, t in enumerate(self.tracks):
             if i in u_track:  # inactive
                 t.pos = t.last_pos[-1]
+                t.mean = Track.tlbr_pos_to_tlwh(t.pos) #added for gmc
                 self.inactive_tracks += [t]
             else: # keep
                 self.new_tracks.append(t)
@@ -706,7 +711,7 @@ class Track(object):
         self.last_pos = deque([pos.clone()], maxlen=mm_steps + 1)
         self.last_v = torch.Tensor([])
         self.gt_id = None
-        self.mean = pos.cpu().numpy()
+        self.mean = self.tlbr_pos_to_tlwh(pos)
         epsilon = 1e-8
         self.covariance = np.ones((4, 4)) * epsilon
 
@@ -732,6 +737,32 @@ class Track(object):
     def reset_last_pos(self):
         self.last_pos.clear()
         self.last_pos.append(self.pos.clone())
+
+    @staticmethod
+    def tlbr_pos_to_tlwh(tlbr):
+        tlbr = tlbr.cpu().numpy()
+        tlwh = np.zeros_like(tlbr)
+        tlwh[:, 0] = tlbr[:, 0]
+        tlwh[:, 1] = tlbr[:, 1]
+        tlwh[:, 2] = tlbr[:, 2] - tlbr[:, 0]
+        tlwh[:, 3] = tlbr[:, 3] - tlbr[:, 1]
+
+        # tlwh = tlwh.tolist()
+        # tlwh = [torch.from_numpy(item).float() for item in tlwh]
+        return tlwh
+    
+    @staticmethod
+    def tlwh_pos_to_tlbr(tlwh):
+        tlwh = np.asarray(tlwh)
+        tlbr = np.zeros_like(tlwh)
+        tlbr[:, 0] = tlwh[:, 0]
+        tlbr[:, 1] = tlwh[:, 1]
+        tlbr[:, 2] = tlwh[:, 0] + tlwh[:, 2]
+        tlbr[:, 3] = tlwh[:, 1] + tlwh[:, 3]
+        # tlbr = [torch.from_numpy(item).float() for item in tlbr]
+        tlbr = torch.from_numpy(tlbr).float().squeeze().cuda()
+        return tlbr
+        
     
     @staticmethod
     def multi_gmc(stracks, H=np.eye(2, 3)):
@@ -742,15 +773,17 @@ class Track(object):
             R = H[:2, :2] #size (2,2)
             R8x8 = np.kron(np.eye(4, dtype=float), R) #size (8, 8) 
             R4x4 = np.kron(np.eye(2, dtype=float), R) #size (4, 4)
-            t = H[:2, 2]
+            t = H[:2, 2, np.newaxis] #it raised a valueError without the newaxis
             means = []
             for i, (mean, cov) in enumerate(zip(multi_mean, multi_covariance)):
                 # mean = R8x8.dot(mean)
-                mean = R4x4.dot(mean) # changed since mean is now a 4x1 vector
+                mean = mean.T
+                mean = R4x4.dot(mean) # changed since mean is now a 4x1 vector 
                 mean[:2] += t
-                cov = R8x8.dot(cov).dot(R8x8.transpose())
+                # cov = R8x8.dot(cov).dot(R8x8.transpose())
+                cov = R4x4.dot(cov).dot(R4x4.transpose())
 
-                stracks[i].mean = mean
+                stracks[i].mean = mean.T
                 stracks[i].covariance = cov
                 means.append(mean)
 
