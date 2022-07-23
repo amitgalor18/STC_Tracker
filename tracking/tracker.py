@@ -684,7 +684,7 @@ class Tracker:
         valid_dets_idx = det_scores >= self.det_thresh  # track_thresh+0.1
         det_pos = det_pos[valid_dets_idx]
         valid_dets_list_idx = torch.where(valid_dets_idx)[0].tolist()
-        detection_list_reid = [detection_list[j] for j in valid_dets_list_idx]
+        detection_list_reid = [detection_list_reid[j] for j in valid_dets_list_idx]
         det_scores = det_scores[valid_dets_idx]
         dets_features_birth = dets_features_birth[valid_dets_idx]
 
@@ -720,7 +720,7 @@ class Tracker:
                         valid_private_det_idx.append(i.item())
                 det_pos = det_pos[valid_private_det_idx]
                 valid_dets_list_idx = torch.where(valid_private_det_idx)[0].tolist()
-                detection_list_reid = [detection_list[j] for j in valid_dets_list_idx]
+                detection_list_reid = [detection_list_reid[j] for j in valid_dets_list_idx]
                 det_scores = det_scores[valid_private_det_idx]
                 dets_features_birth = dets_features_birth[valid_private_det_idx]
 
