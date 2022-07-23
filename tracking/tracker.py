@@ -31,6 +31,8 @@ import copy
 import sys
 import os
 
+from scipy.misc import derivative
+
 # dirty insert path #
 cur_path = os.path.realpath(__file__)
 cur_dir = "/".join(cur_path.split('/')[:-2])
@@ -55,6 +57,7 @@ from util import box_ops
 import matplotlib.pyplot as plt
 import cv2
 from BOTSORT.tracker.gmc import GMC
+from StrongSORT.deep_sort.kalman_filter import KalmanFilter
 
 def transparent_cmap(cmap, N=255):
         "Copy colormap and set alpha values"
@@ -107,6 +110,7 @@ class Tracker:
         self.flow = None
         self.det_thresh = main_args.track_thresh + 0.1
         
+        self.tracks = []
 
     def reset(self, hard=True, seq_name=None):
         self.tracks = []
@@ -166,7 +170,7 @@ class Tracker:
             ))
         self.track_num += num_new 
 
-    def tracks_dets_matching_tracking(self, raw_dets, raw_scores, pre2cur_cts, pos=None, reid_cts=None, reid_feats=None, batch = None):
+    def tracks_dets_matching_tracking(self, raw_dets, raw_scores, pre2cur_cts, pos=None, reid_cts=None, reid_feats=None, batch = None, detection_list = None):
         """
         raw_dets and raw_scores are clean (only ped class and filtered by a threshold
         """
@@ -182,26 +186,30 @@ class Tracker:
             pos_w = pos[:, [2]] - pos[:, [0]]
             pos_h = pos[:, [3]] - pos[:, [1]]
 
-            # warped_pos = torch.cat([pre2cur_cts[:, [0]] - 0.5 * pos_w,
-                                    # pre2cur_cts[:, [1]] - 0.5 * pos_h,
-                                    # pre2cur_cts[:, [0]] + 0.5 * pos_w,
-                                    # pre2cur_cts[:, [1]] + 0.5 * pos_h], dim=1) #TODO: reinstate if gmc doesn't work
+            warped_pos = torch.cat([pre2cur_cts[:, [0]] - 0.5 * pos_w,
+                                    pre2cur_cts[:, [1]] - 0.5 * pos_h,
+                                    pre2cur_cts[:, [0]] + 0.5 * pos_w,
+                                    pre2cur_cts[:, [1]] + 0.5 * pos_h], dim=1) 
 
             # warp positions to current frame using gmc #
-            warp = self.gmc.apply(batch['img'])
-            warped_pos = Track.multi_gmc(self.tracks, warp) 
-            warped_pos = Track.tlwh_pos_to_tlbr(warped_pos) #transcenter works with tlbr pos but the mean is in tlwh pos
+            # warp = self.gmc.apply(batch['img'])
+            # warped_pos = Track.multi_gmc(self.tracks, warp) 
+            # warped_pos = Track.tlwh_pos_to_tlbr(warped_pos) #transcenter works with tlbr pos but the mean is in tlwh pos
             # index low-score dets #
             inds_low = raw_scores > 0.1  # was 0.1 TODO: change back after testing 
             inds_high = raw_scores < self.main_args.track_thresh
             inds_second = torch.logical_and(inds_low, inds_high)
             dets_second = raw_dets[inds_second]
+            inds_second_list = torch.where(inds_second)[0].tolist() #added for detection list, can't slice list with mask tensor
+            detection_list_second = [detection_list[i] for i in inds_second_list]
             scores_second = raw_scores[inds_second]
             reid_cts_second = reid_cts[inds_second]
 
             # index high-score dets #
             remain_inds = raw_scores > self.main_args.track_thresh
             dets = raw_dets[remain_inds]
+            remain_inds_list = torch.where(remain_inds)[0].tolist() #added for detection list, can't slice list with mask tensor
+            detection_list_first = [detection_list[i] for i in remain_inds_list]
             scores_keep = raw_scores[remain_inds]
             reid_cts_keep = reid_cts[remain_inds]
 
@@ -256,11 +264,19 @@ class Tracker:
                     for idx_track, idx_det in zip(matches[:, 0], matches[:, 1]):
                         t = self.tracks[idx_track]
                         t.pos = dets[[idx_det]]
-                        t.mean = Track.tlbr_pos_to_tlwh(t.pos) #added for gmc
+                        # t.mean = Track.tlbr_pos_to_tlwh(t.pos) #added for gmc
                         t.add_features(det_feats[:, :, idx_det])
                         t.score = scores_keep[[idx_det]]
 
-                pos_birth = dets[u_detection, :]
+                    # update track dets, scores #
+                        self.update(detections=detection_list_first, matches=matches, unmatched_tracks=u_track, unmatched_detections=u_detection) #from strongSORT
+
+                pos_birth = dets[u_detection, :] # dets are the high score dets
+                if len(u_detection)>0:
+                    # u_det_list_idx = torch.where(u_detection)[0].tolist() #added for detection list, can't slice list with mask tensor
+                    detection_list_reid = [detection_list_first[i] for i in u_detection] #update detection list for reid
+                else:
+                    detection_list_reid = []
                 scores_birth = scores_keep[u_detection]
                 dets_features_birth = det_feats[0, :, u_detection].transpose(0,1)
 
@@ -295,12 +311,14 @@ class Tracker:
                                                          mode='bilinear', padding_mode='zeros', align_corners=False)[:,
                                            :, 0, :]
                         # update track dets, scores #
+                        self.update(detections=detection_list_second, matches=matches, unmatched_tracks=u_track_second, unmatched_detections=u_detection_second) #from strongSORT
+                        
                         for cc, (idx_match, idx_det) in enumerate(zip(matches[:, 0], matches[:, 1])):
                             idx_track = track_indices[idx_match]
                             # print("low score match:", idx_track)
                             t = self.tracks[idx_track]
                             t.pos = dets_second[[idx_det]]
-                            t.mean = Track.tlbr_pos_to_tlwh(t.pos) #added for gmc
+                            # t.mean = Track.tlbr_pos_to_tlwh(t.pos) #added for gmc
                             gather_feat_t = second_det_feats[:, :, cc]
                             t.add_features(gather_feat_t)
                             t.score = scores_second[[idx_det]]
@@ -316,14 +334,16 @@ class Tracker:
         self.new_tracks = []
         for i, t in enumerate(self.tracks):
             if i in u_track:  # inactive
-                t.pos = t.last_pos[-1]
-                t.mean = Track.tlbr_pos_to_tlwh(t.pos) #added for gmc
+                # t.pos = t.last_pos[-1]
+                t.pos = t.xyah_to_tlbr(t.mean[:4])
+                assert (t.pos[:,2:]>t.pos[:,:2]).all(), "wrong pos: {}".format(t.pos)
+                # t.mean = Track.tlbr_pos_to_tlwh(t.pos) #added for gmc
                 self.inactive_tracks += [t]
             else: # keep
                 self.new_tracks.append(t)
         self.tracks = self.new_tracks
 
-        return [pos_birth, scores_birth, dets_features_birth]
+        return [pos_birth, scores_birth, dets_features_birth, detection_list_reid]
 
     def detect_tracking_duel_vit(self, batch):
 
@@ -425,9 +445,14 @@ class Tracker:
             out_boxes[:, 0::2] = torch.clamp(out_boxes[:, 0::2], 0, orig_w-1)
             out_boxes[:, 1::2] = torch.clamp(out_boxes[:, 1::2], 0, orig_h-1)
 
+        #create detection objects
+        detection_list = []
+        for i in range(out_boxes.shape[0]):
+            detection_list.append(Detection(out_boxes[i,:], out_scores[i], feature=None))
+        
         # post processing #
 
-        return out_boxes, out_scores, pre2cur_cts, mypos, reid_cts, outputs['reid'][0]
+        return out_boxes, out_scores, pre2cur_cts, mypos, reid_cts, outputs['reid'][0], detection_list
 
     def fuse_motion(kf, cost_matrix, tracks, detections, only_position=False, lambda_=0.98):
         if cost_matrix.size == 0:
@@ -473,7 +498,7 @@ class Tracker:
             features = torch.zeros(0).cuda()
         return features
 
-    def reid(self, blob, new_det_pos, new_det_scores, new_det_features):
+    def reid(self, blob, new_det_pos, new_det_scores, new_det_features, detection_list=None):
         """Tries to ReID inactive tracks with provided detections."""
 
         if self.do_reid:
@@ -515,6 +540,9 @@ class Tracker:
                 assigned = []
                 remove_inactive = []
                 if matches.shape[0] > 0:
+                    #update kalman filter
+                    self.update(detections=detection_list, matches=matches, unmatched_tracks=u_track, unmatched_detections=u_detection, is_reid=True) #from strongSORT
+
                     for r, c in zip(matches[:, 0], matches[:, 1]):
                         # inactive tracks reactivation #
                         # print('dist:', dist_mat_np[r, c])
@@ -528,6 +556,7 @@ class Tracker:
                             t.add_features(new_det_features[c].view(1, -1))
                             assigned.append(c)
                             remove_inactive.append(t)
+                    
 
                 for t in remove_inactive:
                     self.inactive_tracks.remove(t)
@@ -537,6 +566,7 @@ class Tracker:
                     new_det_pos = new_det_pos[keep]
                     new_det_scores = new_det_scores[keep]
                     new_det_features = new_det_features[keep]
+                    
                 else:
                     new_det_pos = torch.zeros(size=(0, 4), device=self.sample.tensors.device).float()
                     new_det_scores = torch.zeros(size=(0,), device=self.sample.tensors.device).long()
@@ -548,7 +578,61 @@ class Tracker:
         """Adds new appearance features to active tracks."""
         for t, f in zip(self.tracks, new_features):
             t.add_features(f.view(1, -1))
+    
+    def predict(self): # from strongSORT
+        """Propagate track state distributions one time step forward.
 
+        This function should be called once every time step, before `update`.
+        """
+        pred_positions = []
+        for track in self.tracks:
+            assert track.mean[3] > 0, "Error: track height is negative before prediction!"
+            pred_pos = track.predict()
+            assert track.mean[3] > 0, "Error: track height is negative!"
+            pred_positions.append(pred_pos)
+        pred_positions = torch.stack([torch.from_numpy(item).float() for item in pred_positions]).to(device='cuda:0') #original pre2cur_cts is on cuda:0
+        return pred_positions
+
+    def update(self, detections, matches, unmatched_tracks, unmatched_detections, is_reid=False): #from strongSORT 
+        """Perform measurement update and track management.
+
+        Parameters
+        ----------
+        detections : List[deep_sort.detection.Detection]
+            A list of detections at the current time step.
+
+        """
+        # Run matching cascade.
+        # matches, unmatched_tracks, unmatched_detections = \
+            # self._match(detections)
+
+        # Update track set.
+        for track_idx, detection_idx in matches:
+            if is_reid: #in reid mode, the updated track is in inactive_tracks
+                self.inactive_tracks[track_idx].update(detections[detection_idx])
+                self.inactive_tracks[track_idx].mean = self.inactive_tracks[track_idx].mean.reshape(8) #TODO: remove this line if doesn't work
+            else:
+                self.tracks[track_idx].update(detections[detection_idx])
+                self.tracks[track_idx].mean = self.tracks[track_idx].mean.reshape(8) #TODO: remove this line if doesn't work
+                assert self.tracks[track_idx].mean[3] > 1, "Error: track height is very small!"
+        # for track_idx in unmatched_tracks:
+            # self.tracks[track_idx].mark_missed()
+        # for detection_idx in unmatched_detections:
+            # self._initiate_track(detections[detection_idx]) #TODO: add this if we use tentative tracks
+        # self.tracks = [t for t in self.tracks] #if not t.is_deleted()]
+
+        # Update distance metric.
+        # active_targets = [t.id for t in self.tracks] #if t.is_confirmed()
+        # features, targets = [], []
+        # for track in self.tracks:
+            # if not track.is_confirmed():
+                # continue
+            # features += track.features
+            # targets += [track.id for _ in track.features]
+            # if not opt.EMA:
+            # track.features = []
+        # self.metric.partial_fit(
+            # np.asarray(features), np.asarray(targets), active_targets)
 
     @torch.no_grad()
     def step_reidV3_pre_tracking_vit(self, blob):
@@ -579,25 +663,28 @@ class Tracker:
         ###########################
         # detect
 
-        det_pos, det_scores, pre2cur_cts, mypos, reid_cts, reid_features = self.detect_tracking_duel_vit(blob)
+        det_pos, det_scores, pre2cur_cts, mypos, reid_cts, reid_features, detection_list = self.detect_tracking_duel_vit(blob) #added detection_list
 
         ##################
         # Predict tracks #
         ##################
         if len(self.tracks):
+            predicted_pre2cur_cts = self.predict() #from strongSORT, added output of predicted_pre2cur_cts
 
-            [det_pos, det_scores, dets_features_birth] = self.tracks_dets_matching_tracking(
-                raw_dets=det_pos, raw_scores=det_scores, pre2cur_cts=pre2cur_cts, pos=mypos, reid_cts=reid_cts,
-                reid_feats=reid_features, batch = blob)
+            [det_pos, det_scores, dets_features_birth,detection_list_reid] = self.tracks_dets_matching_tracking(
+                raw_dets=det_pos, raw_scores=det_scores, pre2cur_cts=predicted_pre2cur_cts, pos=mypos, reid_cts=reid_cts,
+                reid_feats=reid_features, batch = blob, detection_list=detection_list) #changed pre2cur_cts to predicted_pre2cur_cts from strongSORT kalman
         else:
             dets_features_birth = F.grid_sample(reid_features, reid_cts.unsqueeze(0).unsqueeze(0), mode='bilinear', padding_mode='zeros', align_corners=False)[:, :, 0, :].transpose(1, 2)[0]
-
+            detection_list_reid = detection_list
         #####################
         # Create new tracks #
         #####################
         # filter birth candidates by scores
         valid_dets_idx = det_scores >= self.det_thresh  # track_thresh+0.1
         det_pos = det_pos[valid_dets_idx]
+        valid_dets_list_idx = torch.where(valid_dets_idx)[0].tolist()
+        detection_list_reid = [detection_list[j] for j in valid_dets_list_idx]
         det_scores = det_scores[valid_dets_idx]
         dets_features_birth = dets_features_birth[valid_dets_idx]
 
@@ -632,6 +719,8 @@ class Tracker:
                         iou[i, :] = -1
                         valid_private_det_idx.append(i.item())
                 det_pos = det_pos[valid_private_det_idx]
+                valid_dets_list_idx = torch.where(valid_private_det_idx)[0].tolist()
+                detection_list_reid = [detection_list[j] for j in valid_dets_list_idx]
                 det_scores = det_scores[valid_private_det_idx]
                 dets_features_birth = dets_features_birth[valid_private_det_idx]
 
@@ -648,7 +737,8 @@ class Tracker:
 
             assert det_pos.shape[0] == dets_features_birth.shape[0] == det_scores.shape[0]
             # try to re-identify tracks
-            det_pos, det_scores, dets_features_birth = self.reid(blob, det_pos, det_scores, dets_features_birth)
+            
+            det_pos, det_scores, dets_features_birth = self.reid(blob, det_pos, det_scores, dets_features_birth, detection_list=detection_list_reid)
 
             assert det_pos.shape[0] == dets_features_birth.shape[0] == det_scores.shape[0]
 
@@ -699,7 +789,7 @@ class Tracker:
 class Track(object):
     """This class contains all necessary for every individual track."""
 
-    def __init__(self, pos, score, track_id, features, inactive_patience, max_features_num, mm_steps):
+    def __init__(self, pos, score, track_id, features, inactive_patience, max_features_num, mm_steps, n_init=3,max_age=30, feature=None):
         self.id = track_id
         self.pos = pos
         self.score = score
@@ -711,9 +801,22 @@ class Track(object):
         self.last_pos = deque([pos.clone()], maxlen=mm_steps + 1)
         self.last_v = torch.Tensor([])
         self.gt_id = None
-        self.mean = self.tlbr_pos_to_tlwh(pos)
-        epsilon = 1e-8
-        self.covariance = np.ones((4, 4)) * epsilon
+
+        # self.mean = self.tlbr_pos_to_tlwh(pos)
+        # epsilon = 1e-8
+        # self.covariance = np.ones((4, 4)) * epsilon
+        self.hits = 1
+        self.age = 1
+        self.time_since_update = 0
+        # self.features = []
+        # if feature is not None:
+            # feature /= np.linalg.norm(feature)
+            # self.features.append(feature)
+        self._n_init = n_init
+        self._max_age = max_age
+
+        self.kf = KalmanFilter()
+        self.mean, self.covariance = self.kf.initiate(self.tlbr_to_xyah(pos).reshape(4))
 
     def has_positive_area(self):
         return self.pos[0, 2] > self.pos[0, 0] and self.pos[0, 3] > self.pos[0, 1]
@@ -762,30 +865,133 @@ class Track(object):
         # tlbr = [torch.from_numpy(item).float() for item in tlbr]
         tlbr = torch.from_numpy(tlbr).float().squeeze().cuda()
         return tlbr
-        
     
     @staticmethod
-    def multi_gmc(stracks, H=np.eye(2, 3)):
-        if len(stracks) > 0:
-            multi_mean = np.asarray([st.mean.copy() for st in stracks])
-            multi_covariance = np.asarray([st.covariance for st in stracks])
+    def tlbr_to_xyah(tlbr):
+        tlbr = tlbr.cpu().numpy()
+        xyah = np.zeros_like(tlbr)
+        xyah[:, 0] = (tlbr[:, 0] + tlbr[:, 2]) / 2 # x center
+        xyah[:, 1] = (tlbr[:, 1] + tlbr[:, 3]) / 2 # y center
+        xyah[:, 2] = (tlbr[:, 2] - tlbr[:, 0])/(tlbr[:, 3] - tlbr[:, 1]) # aspect ratio (width/height)
+        xyah[:, 3] = tlbr[:, 3]-tlbr[:, 1] # height
+        # xyah = xyah.tolist()
+        # xyah = [torch.from_numpy(item).float() for item in xyah]
+        return xyah.T #kalman filter expects a column vector
+    
+    @staticmethod
+    def xyah_to_tlbr(xyah):
+        xyah = np.asarray(xyah)
+        tlbr = np.zeros_like(xyah)
+        width = xyah[2] * xyah[3]
+        tlbr[0] = xyah[0] - width / 2
+        tlbr[1] = xyah[1] - xyah[3] / 2
+        tlbr[2] = xyah[0] + width / 2
+        tlbr[3] = xyah[1] + xyah[3] / 2
+        tlbr = tlbr.reshape(1, 4)
+        tlbr = torch.from_numpy(tlbr).float().cuda()
+        return tlbr
+    
+    # @staticmethod
+    # def multi_gmc(stracks, H=np.eye(2, 3)):
+    #     if len(stracks) > 0:
+    #         multi_mean = np.asarray([st.mean.copy() for st in stracks])
+    #         multi_covariance = np.asarray([st.covariance for st in stracks])
 
-            R = H[:2, :2] #size (2,2)
-            R8x8 = np.kron(np.eye(4, dtype=float), R) #size (8, 8) 
-            R4x4 = np.kron(np.eye(2, dtype=float), R) #size (4, 4)
-            t = H[:2, 2, np.newaxis] #it raised a valueError without the newaxis
-            means = []
-            for i, (mean, cov) in enumerate(zip(multi_mean, multi_covariance)):
-                # mean = R8x8.dot(mean)
-                mean = mean.T
-                mean = R4x4.dot(mean) # changed since mean is now a 4x1 vector 
-                mean[:2] += t
-                # cov = R8x8.dot(cov).dot(R8x8.transpose())
-                cov = R4x4.dot(cov).dot(R4x4.transpose())
+    #         R = H[:2, :2] #size (2,2)
+    #         R8x8 = np.kron(np.eye(4, dtype=float), R) #size (8, 8) 
+    #         R4x4 = np.kron(np.eye(2, dtype=float), R) #size (4, 4)
+    #         t = H[:2, 2, np.newaxis] #it raised a valueError without the newaxis
+    #         means = []
+    #         for i, (mean, cov) in enumerate(zip(multi_mean, multi_covariance)):
+    #             # mean = R8x8.dot(mean)
+    #             mean = mean.T
+    #             mean = R4x4.dot(mean) # changed since mean is now a 4x1 vector 
+    #             mean[:2] += t
+    #             # cov = R8x8.dot(cov).dot(R8x8.transpose())
+    #             cov = R4x4.dot(cov).dot(R4x4.transpose())
 
-                stracks[i].mean = mean.T
-                stracks[i].covariance = cov
-                means.append(mean)
+    #             stracks[i].mean = mean.T
+    #             stracks[i].covariance = cov
+    #             means.append(mean)
 
 
-            return means
+    #         return means
+    
+    def predict(self):
+        " Kalman prediction step"
+        self.mean, self.covariance = self.kf.predict(self.mean.reshape(8), self.covariance)
+        self.age += 1
+        self.time_since_update += 1
+        pred_pos = self.mean[:2] #added to force using the predicted pos in matching
+        return pred_pos
+
+    
+    def update(self, detection):
+        """Kalman filter measurement update
+       
+        detection : The associated detection position.
+
+        """
+        self.mean, self.covariance = self.kf.update(self.mean.reshape(8), self.covariance, detection.to_xyah().reshape(1,4), detection.confidence)
+
+        # feature = detection.feature / np.linalg.norm(detection.feature) #TODO: declare detection dict with feature key
+        # if opt.EMA:
+        #     smooth_feat = opt.EMA_alpha * self.features[-1] + (1 - opt.EMA_alpha) * feature
+        #     smooth_feat /= np.linalg.norm(smooth_feat)
+        #     self.features = [smooth_feat]
+        # else:
+        # self.features.append(feature)
+
+        self.hits += 1
+        self.time_since_update = 0
+        # if self.state == TrackState.Tentative and self.hits >= self._n_init:
+        #     self.state = TrackState.Confirmed
+
+class Detection(object): #from strongSORT
+    """
+    This class represents a bounding box detection in a single image.
+
+    Parameters
+    ----------
+    tlwh : array_like
+        Bounding box in format `(x, y, w, h)`.
+    confidence : float
+        Detector confidence score.
+    feature : array_like
+        A feature vector that describes the object contained in this image.
+
+    Attributes
+    ----------
+    tlwh : ndarray
+        Bounding box in format `(top left x, top left y, width, height)`.
+    confidence : ndarray
+        Detector confidence score.
+    feature : ndarray | NoneType
+        A feature vector that describes the object contained in this image.
+
+    """
+
+    def __init__(self, tlbr, confidence, feature):
+        self.tlbr = tlbr.cpu().numpy() #np.asarray(tlwh, dtype=np.float)
+        self.confidence = float(confidence)
+        self.feature = np.asarray(feature, dtype=np.float32)
+
+    # def to_tlbr(self):
+        # """Convert bounding box to format `(min x, min y, max x, max y)`, i.e.,
+        # `(top left, bottom right)`.
+        # """
+        # ret = self.tlwh.copy()
+        # ret[2:] += ret[:2]
+        # return ret
+
+    def to_xyah(self):
+        """Convert bounding box to format `(center x, center y, aspect ratio,
+        height)`, where the aspect ratio is `width / height`.
+        """
+        tlbr = self.tlbr.copy()
+        xyah = tlbr
+        xyah[0] = (tlbr[0] + tlbr[2]) / 2
+        xyah[1] = (tlbr[1] + tlbr[3]) / 2
+        xyah[3] = (tlbr[3]-tlbr[1]) #height
+        xyah[2] = (tlbr[2]-tlbr[0]) / xyah[3] # width / height
+        return xyah

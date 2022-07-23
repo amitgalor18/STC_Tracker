@@ -254,7 +254,7 @@ def main(tracktor):
         path_AFLink = './StrongSORT/AFLink/AFLink_epoch20.pth'
         AFmodel = PostLinker()
         AFmodel.load_state_dict(torch.load(path_AFLink))
-        dataset = LinkData(main_args.data_dir+'/train/', 'val')
+        dataset = LinkData('','val') #LinkData(main_args.data_dir+'/train/', 'val')
 
     for model_dir, output_dir in zip(models, output_dirs):
         if not os.path.exists(output_dir):
