@@ -58,6 +58,7 @@ import matplotlib.pyplot as plt
 import cv2
 from BOTSORT.tracker.gmc import GMC
 from StrongSORT.deep_sort.kalman_filter import KalmanFilter
+import pandas as pd
 
 def transparent_cmap(cmap, N=255):
         "Copy colormap and set alpha values"
@@ -111,6 +112,18 @@ class Tracker:
         self.det_thresh = main_args.track_thresh + 0.1
         
         self.tracks = []
+        #for plotting kalman error:
+        self.covx_minus_list = []
+        self.covx_list = []
+        self.covy_minus_list = []
+        self.covy_list = []
+        self.meanx_minus_list = []
+        self.meanx_list = []
+        self.meany_minus_list = []
+        self.meany_list = []
+        self.posx_list = []
+        self.posy_list = []
+        self.kalman_outputs = {}
 
     def reset(self, hard=True, seq_name=None):
         self.tracks = []
@@ -259,8 +272,9 @@ class Tracker:
 
 
                 if matches.shape[0] > 0:
-
+                    
                     # update track dets, scores #
+                    self.update(detections=detection_list_first, matches=matches, unmatched_tracks=u_track, unmatched_detections=u_detection) #from strongSORT TODO: return to for loop if doesn't work here
                     for idx_track, idx_det in zip(matches[:, 0], matches[:, 1]):
                         t = self.tracks[idx_track]
                         t.pos = dets[[idx_det]]
@@ -268,8 +282,6 @@ class Tracker:
                         t.add_features(det_feats[:, :, idx_det])
                         t.score = scores_keep[[idx_det]]
 
-                    # update track dets, scores #
-                        self.update(detections=detection_list_first, matches=matches, unmatched_tracks=u_track, unmatched_detections=u_detection) #from strongSORT
 
                 pos_birth = dets[u_detection, :] # dets are the high score dets
                 if len(u_detection)>0:
@@ -311,7 +323,7 @@ class Tracker:
                                                          mode='bilinear', padding_mode='zeros', align_corners=False)[:,
                                            :, 0, :]
                         # update track dets, scores #
-                        self.update(detections=detection_list_second, matches=matches, unmatched_tracks=u_track_second, unmatched_detections=u_detection_second) #from strongSORT
+                        self.update(detections=detection_list_second, matches=matches, unmatched_tracks=u_track_second, unmatched_detections=u_detection_second, is_2nd_assignment=True,track_indices=track_indices) #from strongSORT
                         
                         for cc, (idx_match, idx_det) in enumerate(zip(matches[:, 0], matches[:, 1])):
                             idx_track = track_indices[idx_match]
@@ -593,7 +605,7 @@ class Tracker:
         pred_positions = torch.stack([torch.from_numpy(item).float() for item in pred_positions]).to(device='cuda:0') #original pre2cur_cts is on cuda:0
         return pred_positions
 
-    def update(self, detections, matches, unmatched_tracks, unmatched_detections, is_reid=False): #from strongSORT 
+    def update(self, detections, matches, unmatched_tracks, unmatched_detections, is_reid=False, is_2nd_assignment=False,track_indices=None): #from strongSORT 
         """Perform measurement update and track management.
 
         Parameters
@@ -610,7 +622,11 @@ class Tracker:
         for track_idx, detection_idx in matches:
             if is_reid: #in reid mode, the updated track is in inactive_tracks
                 self.inactive_tracks[track_idx].update(detections[detection_idx])
-                self.inactive_tracks[track_idx].mean = self.inactive_tracks[track_idx].mean.reshape(8) #TODO: remove this line if doesn't work
+                self.inactive_tracks[track_idx].mean = self.inactive_tracks[track_idx].mean.reshape(8) 
+            elif is_2nd_assignment:
+                actual_track_idx = track_indices[track_idx]
+                self.tracks[actual_track_idx].update(detections[detection_idx])
+                self.tracks[actual_track_idx].mean = self.tracks[actual_track_idx].mean.reshape(8)
             else:
                 self.tracks[track_idx].update(detections[detection_idx])
                 self.tracks[track_idx].mean = self.tracks[track_idx].mean.reshape(8) #TODO: remove this line if doesn't work
@@ -668,8 +684,33 @@ class Tracker:
         ##################
         # Predict tracks #
         ##################
+        plot_kf = False
         if len(self.tracks):
             predicted_pre2cur_cts = self.predict() #from strongSORT, added output of predicted_pre2cur_cts
+            #############################
+            # plot Kalman filter result # TODO: remove this section after testing
+            #############################
+            # chosen_idx = 2
+            # for i,t in enumerate(self.tracks):
+                # if t.id ==chosen_idx:
+                    # t_idx = i
+            # plot_kf = True
+            # track_cov_x = self.tracks[t_idx].covariance[0,0]
+            # track_mean_x = self.tracks[t_idx].mean[0]
+            # track_posx = self.tracks[t_idx].pos[:,0]
+            # track_cov_y = self.tracks[t_idx].covariance[1,1]
+            # track_mean_y = self.tracks[t_idx].mean[1]
+            # track_posy = self.tracks[t_idx].pos[:,1]
+
+            # self.covx_minus_list.append(track_cov_x)
+            # self.posx_list.append(track_posx)
+            # self.covy_minus_list.append(track_cov_y)
+            # self.posy_list.append(track_posy)
+            # self.meanx_minus_list.append(track_mean_x)
+            # self.meany_minus_list.append(track_mean_y)
+
+
+            #############################
 
             [det_pos, det_scores, dets_features_birth,detection_list_reid] = self.tracks_dets_matching_tracking(
                 raw_dets=det_pos, raw_scores=det_scores, pre2cur_cts=predicted_pre2cur_cts, pos=mypos, reid_cts=reid_cts,
@@ -745,6 +786,31 @@ class Tracker:
             # add new
             if det_pos.nelement() > 0:
                 self.add(det_pos, det_scores, dets_features_birth)
+        #############################
+        # plot Kalman filter result # TODO: remove this section after testing
+        #############################
+        if plot_kf:
+            t_idx = None
+            for i,t in enumerate(self.tracks):
+                if t.id ==chosen_idx:
+                    t_idx = i
+            assert t_idx is not None, "chosen_idx not found, track id: {} probably became inactive".format(chosen_idx)
+            track_cov_x = self.tracks[t_idx].covariance[0,0]
+            track_mean_x = self.tracks[t_idx].mean[0]
+            track_cov_y = self.tracks[t_idx].covariance[1,1]
+            track_mean_y = self.tracks[t_idx].mean[1]
+
+            self.covx_list.append(track_cov_x)
+            self.meanx_list.append(track_mean_x)
+            self.covy_list.append(track_cov_y)
+            self.meany_list.append(track_mean_y)
+            
+            self.kalman_outputs = {'covx_minus': self.covx_minus_list, 'meanx_minus': self.meanx_minus_list,
+                                    'covy_minus': self.covy_minus_list, 'meany_minus': self.meany_minus_list,
+                                    'covx': self.covx_list, 'meanx': self.meanx_list, 'covy': self.covy_list, 'meany': self.meany_list}
+            
+        
+
 
         ####################
         # Generate Results #
