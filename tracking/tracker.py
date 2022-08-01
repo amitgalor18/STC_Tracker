@@ -688,12 +688,18 @@ class Tracker:
         if len(self.tracks):
             predicted_pre2cur_cts = self.predict() #from strongSORT, added output of predicted_pre2cur_cts
             #############################
-            # plot Kalman filter result # TODO: remove this section after testing
+            # save Kalman filter result # TODO: remove this section after testing
             #############################
-            # chosen_idx = 2
+            # chosen_idx = 4
+            # t_idx = None
             # for i,t in enumerate(self.tracks):
-                # if t.id ==chosen_idx:
-                    # t_idx = i
+            #     if t.id ==chosen_idx:
+            #         t_idx = i
+            # if t_idx is None: # chosen idx not found in tracks, search in inactive tracks
+            #     for i,t in enumerate(self.inactive_tracks):
+            #         if t.id ==chosen_idx:
+            #             t_idx = i
+            # assert t_idx is not None, "chosen_idx not found, track id: {} probably gone".format(chosen_idx)
             # plot_kf = True
             # track_cov_x = self.tracks[t_idx].covariance[0,0]
             # track_mean_x = self.tracks[t_idx].mean[0]
@@ -787,14 +793,18 @@ class Tracker:
             if det_pos.nelement() > 0:
                 self.add(det_pos, det_scores, dets_features_birth)
         #############################
-        # plot Kalman filter result # TODO: remove this section after testing
+        # save Kalman filter result # TODO: remove this section after testing
         #############################
         if plot_kf:
             t_idx = None
             for i,t in enumerate(self.tracks):
                 if t.id ==chosen_idx:
                     t_idx = i
-            assert t_idx is not None, "chosen_idx not found, track id: {} probably became inactive".format(chosen_idx)
+            if t_idx is None:
+                for i,t in enumerate(self.inactive_tracks):
+                    if t.id ==chosen_idx:
+                        t_idx = i
+            assert t_idx is not None, "chosen_idx not found, track id: {} probably gone".format(chosen_idx)
             track_cov_x = self.tracks[t_idx].covariance[0,0]
             track_mean_x = self.tracks[t_idx].mean[0]
             track_cov_y = self.tracks[t_idx].covariance[1,1]
@@ -808,7 +818,7 @@ class Tracker:
             self.kalman_outputs = {'covx_minus': self.covx_minus_list, 'meanx_minus': self.meanx_minus_list,
                                     'covy_minus': self.covy_minus_list, 'meany_minus': self.meany_minus_list,
                                     'covx': self.covx_list, 'meanx': self.meanx_list, 'covy': self.covy_list, 'meany': self.meany_list}
-            
+        #############################    
         
 
 
