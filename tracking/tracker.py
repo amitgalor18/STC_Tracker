@@ -124,6 +124,8 @@ class Tracker:
         self.posx_list = []
         self.posy_list = []
         self.kalman_outputs = {}
+        # output inactive tracks:
+        self.show_inactive_age = 3 # show inactive tracks for 3 frames TODO: make it configurable
 
     def reset(self, hard=True, seq_name=None):
         self.tracks = []
@@ -603,6 +605,13 @@ class Tracker:
             assert track.mean[3] > 0, "Error: track height is negative!"
             pred_positions.append(pred_pos)
         pred_positions = torch.stack([torch.from_numpy(item).float() for item in pred_positions]).to(device='cuda:0') #original pre2cur_cts is on cuda:0
+        for track in self.inactive_tracks:
+            if track.mean[3] < 0:
+                self.inactive_tracks.remove(track) #remove tracks with negative height
+                
+            elif track.count_inactive < track._max_age:
+                assert track.mean[3] > 0, "Error: track height is negative before prediction! track id: {} track mean: {}".format(track.id, track.mean)
+                inactive_pred_pos = track.predict() #predict inactive track locations as well
         return pred_positions
 
     def update(self, detections, matches, unmatched_tracks, unmatched_detections, is_reid=False, is_2nd_assignment=False,track_indices=None): #from strongSORT 
@@ -855,6 +864,13 @@ class Tracker:
                 new_inactive_tracks.append(t)
 
         self.inactive_tracks = new_inactive_tracks
+
+        # Add young inactive tracks to results #
+        # for t in self.inactive_tracks:
+            # if t.count_inactive <= self.show_inactive_age: #only inactives younger than X frames are shown
+                # if t.id not in self.results.keys():
+                    # self.results[t.id] = {}
+                # self.results[t.id][self.im_index] = np.concatenate([t.pos[0].cpu().numpy(), np.array([t.score.cpu()])])
 
         self.im_index += 1
 
