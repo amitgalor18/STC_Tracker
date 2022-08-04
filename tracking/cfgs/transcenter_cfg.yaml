@@ -32,6 +32,14 @@ tracktor:
     # How much timesteps dead tracks are kept and cnosidered for reid
     inactive_patience: 60
     # How similar do image and old track need to be to be considered the same person
-    reid_sim_threshold: 2.0 #was 2.0
+    reid_sim_threshold: 2.0 #was 2.0, 
     # How much IoU do track and image need to be considered for matching
-    reid_iou_threshold: 0.1
+    reid_iou_threshold: 0.1 # was 0.1
+    
+    #fast ReID params
+    fast_reid_config: /workspace/TransCenterV2/fast_reid/configs/MOT17/sbs_S50.yml
+    fast_reid_weights: /workspace/TransCenterV2/model_zoo/mot17_sbs_S50.pth
+    device: gpu
+    sim_threshold: 0.25 #embedding gaussians show 0.2-0.25 is better than 0.5
+    iou_threshold: 0.5
+

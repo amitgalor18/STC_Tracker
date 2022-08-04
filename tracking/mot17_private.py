@@ -205,7 +205,7 @@ def main(tracktor):
     main_args.tracking = True
     main_args.clip = False
     main_args.fuse_scores = True
-    main_args.iou_recover = True #was True. added fused recover of appearance and iou
+    main_args.iou_recover = False #was True. added fused recover of appearance and iou
     selected_seq = main_args.custom
 
     device = torch.device(main_args.device)

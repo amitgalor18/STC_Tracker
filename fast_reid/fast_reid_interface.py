@@ -74,7 +74,7 @@ class FastReIDInterface:
         self.pH, self.pW = self.cfg.INPUT.SIZE_TEST
 
     def inference(self, image, detections):
-
+        image = image.cpu().numpy() #torch image doesn't allow ::-1
         if detections is None or np.size(detections) == 0:
             return []
 
@@ -82,8 +82,8 @@ class FastReIDInterface:
 
         batch_patches = []
         patches = []
-        for d in range(np.size(detections, 0)):
-            tlbr = detections[d, :4].astype(np.int_)
+        for i,d in enumerate(detections):  #was range(np.size(detections, 0)):  changed to fit detection object list instead of array
+            tlbr = d.tlbr.astype(np.int_) # was detections[d, :4].astype(np.int_)
             tlbr[0] = max(0, tlbr[0])
             tlbr[1] = max(0, tlbr[1])
             tlbr[2] = min(W - 1, tlbr[2])
@@ -107,7 +107,7 @@ class FastReIDInterface:
 
             patches.append(patch)
 
-            if (d + 1) % self.batch_size == 0:
+            if (i + 1) % self.batch_size == 0:
                 patches = torch.stack(patches, dim=0)
                 batch_patches.append(patches)
                 patches = []

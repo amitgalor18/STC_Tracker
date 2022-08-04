@@ -56,9 +56,11 @@ from post_processing.decode import generic_decode
 from util import box_ops
 import matplotlib.pyplot as plt
 import cv2
-from BOTSORT.tracker.gmc import GMC
+# from BOTSORT.tracker.gmc import GMC
 from StrongSORT.deep_sort.kalman_filter import KalmanFilter
 import pandas as pd
+from fast_reid.fast_reid_interface import FastReIDInterface
+from scipy.spatial.distance import cdist
 
 def transparent_cmap(cmap, N=255):
         "Copy colormap and set alpha values"
@@ -91,6 +93,9 @@ class Tracker:
         self.do_reid = tracker_cfg['do_reid']
         self.max_features_num = tracker_cfg['max_features_num']
         self.reid_sim_threshold = tracker_cfg['reid_sim_threshold']
+        self.reid_iou_threshold = tracker_cfg['reid_iou_threshold']
+        self.sim_threshold = tracker_cfg['sim_threshold']
+        self.iou_threshold = tracker_cfg['iou_threshold']
         self.do_align = tracker_cfg['do_align']
         self.motion_model_cfg = tracker_cfg['motion_model']
         self.postprocessor = postprocessor
@@ -125,7 +130,9 @@ class Tracker:
         self.posy_list = []
         self.kalman_outputs = {}
         # output inactive tracks:
-        self.show_inactive_age = 3 # show inactive tracks for 3 frames TODO: make it configurable
+        # self.show_inactive_age = 3 # show inactive tracks for 3 frames TODO: make it configurable
+        self.encoder = FastReIDInterface(tracker_cfg['fast_reid_config'], tracker_cfg['fast_reid_weights'], tracker_cfg['device'])
+
 
     def reset(self, hard=True, seq_name=None):
         self.tracks = []
@@ -138,7 +145,7 @@ class Tracker:
         self.pre_encoder_pos_encoding = None
         self.flow = None
         self.obj_detect.masks_flatten = None
-        self.gmc = GMC(method='file', verbose=[seq_name, False]) #Amit: added for camera correction
+        # self.gmc = GMC(method='file', verbose=[seq_name, False]) #Amit: added for camera correction
 
         if hard:
             self.track_num = 0
@@ -185,7 +192,7 @@ class Tracker:
             ))
         self.track_num += num_new 
 
-    def tracks_dets_matching_tracking(self, raw_dets, raw_scores, pre2cur_cts, pos=None, reid_cts=None, reid_feats=None, batch = None, detection_list = None):
+    def tracks_dets_matching_tracking(self, blob, raw_dets, raw_scores, pre2cur_cts, pos=None, reid_cts=None, reid_feats=None, batch = None, detection_list = None):
         """
         raw_dets and raw_scores are clean (only ped class and filtered by a threshold
         """
@@ -228,6 +235,14 @@ class Tracker:
             scores_keep = raw_scores[remain_inds]
             reid_cts_keep = reid_cts[remain_inds]
 
+            # extract embedding features #
+            features_keep_first = self.encoder.inference(blob['img'][0].permute(1, 2, 0), detection_list_first) #image shape 3,1080,1920 to 1080,1920,3
+            features_keep_second = self.encoder.inference(blob['img'][0].permute(1, 2, 0), detection_list_second)
+            for i,d in enumerate(detection_list_first):
+                d.feature = features_keep_first[i]
+            for i,d in enumerate(detection_list_second):
+                d.feature = features_keep_second[i]
+
             # Step 1: first assignment #
             if len(dets) > 0:
                 assert dets.shape[0] == scores_keep.shape[0]
@@ -239,16 +254,23 @@ class Tracker:
                     iou_dist *= scores_keep[None, :]
 
                 iou_dist = 1 - iou_dist
-                
+                iou_dist_mask = (iou_dist > self.iou_threshold)
 
                 # todo recover inactive tracks here ?
+                if self.main_args.iou_recover: 
+                    det_feats = F.grid_sample(reid_feats, reid_cts_keep.unsqueeze(0).unsqueeze(0),
+                                                mode='bilinear', padding_mode='zeros', align_corners=False)[:, :, 0, :] #was after assignment, moved to try appearance matching
+                    matches, u_track, u_detection = self.linear_assignment(iou_dist.cpu().numpy(),
+                                                                        thresh=self.main_args.match_thresh)
 
-                det_feats = F.grid_sample(reid_feats, reid_cts_keep.unsqueeze(0).unsqueeze(0),
-                                              mode='bilinear', padding_mode='zeros', align_corners=False)[:, :, 0, :] #was after assignment, moved to try appearance matching
-                matches, u_track, u_detection = self.linear_assignment(iou_dist.cpu().numpy(),
-                                                                       thresh=self.main_args.match_thresh)
+                else: # try fuse matching (appearance and iou) 
+                    emb_dists = self.embedding_distance(self.tracks, detection_list_first)
+                    raw_emb_dists = emb_dists.copy()
+                    emb_dists[emb_dists > self.sim_threshold] = 1.0
+                    emb_dists[iou_dist_mask] = 1.0
+                    dist = np.minimum(iou_dist, emb_dists) #picking the min of iou and appearance
 
-                # try fuse matching (appearance and iou) 
+                    matches, u_track, u_detection = self.linear_assignment(dist, thresh=self.main_args.match_thresh)
                 # dist_mat, pos = [], []
                 # for t in self.tracks:
                     # dist_mat.append(torch.cat([t.test_features(feat.view(1, -1))
@@ -277,6 +299,7 @@ class Tracker:
                     
                     # update track dets, scores #
                     self.update(detections=detection_list_first, matches=matches, unmatched_tracks=u_track, unmatched_detections=u_detection) #from strongSORT TODO: return to for loop if doesn't work here
+                    
                     for idx_track, idx_det in zip(matches[:, 0], matches[:, 1]):
                         t = self.tracks[idx_track]
                         t.pos = dets[[idx_det]]
@@ -311,10 +334,19 @@ class Tracker:
                     remained_tracks_pos = warped_pos[u_track]
                     track_indices = copy.deepcopy(u_track)
                     # print("track_indices: ", track_indices)
-                    # matching with gIOU
-                    iou_dist = 1 - box_ops.generalized_box_iou(remained_tracks_pos, dets_second)  # [0, 2]
+                    if self.main_args.iou_recover:
+                        # matching with gIOU
+                        iou_dist = 1 - box_ops.generalized_box_iou(remained_tracks_pos, dets_second)  # [0, 2]
+                        iou_dist_mask = (iou_dist > self.iou_threshold)
 
-                    matches, u_track_second, u_detection_second = self.linear_assignment(iou_dist.cpu().numpy(),thresh=0.4)  # stricter with low-score dets
+                        matches, u_track_second, u_detection_second = self.linear_assignment(iou_dist.cpu().numpy(),thresh=0.4)  # stricter with low-score dets
+                    else: # try fuse matching (appearance and iou)
+                        emb_dists = self.embedding_distance(self.tracks[u_track], detection_list_second)
+                        raw_emb_dists = emb_dists.copy()
+                        emb_dists[emb_dists > self.sim_threshold] = 1.0
+                        emb_dists[iou_dist_mask] = 1.0
+                        dist = np.minimum(iou_dist, emb_dists)
+                        matches, u_track_second, u_detection_second = self.linear_assignment(dist, thresh=self.main_args.match_thresh) #TODO: change to smaller thresh like in iou
 
                     # update u_track here
                     u_track = [track_indices[t_idx] for t_idx in u_track_second]
@@ -481,6 +513,23 @@ class Tracker:
             cost_matrix[row] = lambda_ * cost_matrix[row] + (1 - lambda_) * gating_distance
         return cost_matrix
 
+    def embedding_distance(tracks, detections, metric='cosine'):
+        """
+        :param tracks: list[STrack]
+        :param detections: list[BaseTrack]
+        :param metric:
+        :return: cost_matrix np.ndarray
+        """
+
+        cost_matrix = np.zeros((len(tracks), len(detections)), dtype=np.float)
+        if cost_matrix.size == 0:
+            return cost_matrix
+        det_features = np.asarray([track.curr_feat for track in detections], dtype=np.float)
+        track_features = np.asarray([track.smooth_feat for track in tracks], dtype=np.float)
+
+        cost_matrix = np.maximum(0.0, cdist(track_features, det_features, metric))  # / 2.0  # Nomalized features
+        return cost_matrix
+
     def get_pos(self):
         """Get the positions of all active tracks."""
         if len(self.tracks) == 1:
@@ -561,7 +610,7 @@ class Tracker:
                         # inactive tracks reactivation #
                         # print('dist:', dist_mat_np[r, c])
                         # print('sim threshold:', self.reid_sim_threshold)
-                        if dist_mat[r, c] <= self.reid_sim_threshold: #or not self.main_args.iou_recover: #TODO: used to depend on iou, remove if doesn't work
+                        if dist_mat[r, c] <= self.reid_sim_threshold or not self.main_args.iou_recover: #TODO: used to depend on iou, remove if doesn't work
                             t = self.inactive_tracks[r]
                             self.tracks.append(t)
                             t.count_inactive = 0
@@ -728,7 +777,7 @@ class Tracker:
             #############################
 
             [det_pos, det_scores, dets_features_birth,detection_list_reid] = self.tracks_dets_matching_tracking(
-                raw_dets=det_pos, raw_scores=det_scores, pre2cur_cts=predicted_pre2cur_cts, pos=mypos, reid_cts=reid_cts,
+                blob=blob, raw_dets=det_pos, raw_scores=det_scores, pre2cur_cts=predicted_pre2cur_cts, pos=mypos, reid_cts=reid_cts,
                 reid_feats=reid_features, batch = blob, detection_list=detection_list) #changed pre2cur_cts to predicted_pre2cur_cts from strongSORT kalman
         else:
             dets_features_birth = F.grid_sample(reid_features, reid_cts.unsqueeze(0).unsqueeze(0), mode='bilinear', padding_mode='zeros', align_corners=False)[:, :, 0, :].transpose(1, 2)[0]
@@ -881,7 +930,7 @@ class Tracker:
 class Track(object):
     """This class contains all necessary for every individual track."""
 
-    def __init__(self, pos, score, track_id, features, inactive_patience, max_features_num, mm_steps, n_init=3,max_age=30, feature=None):
+    def __init__(self, pos, score, track_id, features, inactive_patience, max_features_num, mm_steps, n_init=3,max_age=30, feat=None):
         self.id = track_id
         self.pos = pos
         self.score = score
@@ -900,15 +949,29 @@ class Track(object):
         self.hits = 1
         self.age = 1
         self.time_since_update = 0
-        # self.features = []
-        # if feature is not None:
-            # feature /= np.linalg.norm(feature)
-            # self.features.append(feature)
+        #fast RE-ID:
+        self.smooth_feat = None
+        self.curr_feat = None
+        self.FR_features = deque([], maxlen=max_features_num)
+        if feat is not None:
+            self.update_features(feat)
+        self.alpha = 0.9
         self._n_init = n_init
         self._max_age = max_age
 
         self.kf = KalmanFilter()
         self.mean, self.covariance = self.kf.initiate(self.tlbr_to_xyah(pos).reshape(4))
+
+    def update_features(self, feat):
+        feat /= np.linalg.norm(feat)
+        self.curr_feat = feat
+        if self.smooth_feat is None:
+            self.smooth_feat = feat
+        else:
+            self.smooth_feat = self.alpha * self.smooth_feat + (1 - self.alpha) * feat
+        self.FR_features.append(feat)
+        self.smooth_feat /= np.linalg.norm(self.smooth_feat)  
+        
 
     def has_positive_area(self):
         return self.pos[0, 2] > self.pos[0, 0] and self.pos[0, 3] > self.pos[0, 1]
@@ -1021,11 +1084,13 @@ class Track(object):
     def update(self, detection):
         """Kalman filter measurement update
        
-        detection : The associated detection position.
+        detection : The associated detection object.
 
         """
         self.mean, self.covariance = self.kf.update(self.mean.reshape(8), self.covariance, detection.to_xyah().reshape(1,4), detection.confidence)
 
+        if detection.feature:
+            self.update_features(detection.feature)
         # feature = detection.feature / np.linalg.norm(detection.feature) #TODO: declare detection dict with feature key
         # if opt.EMA:
         #     smooth_feat = opt.EMA_alpha * self.features[-1] + (1 - opt.EMA_alpha) * feature
