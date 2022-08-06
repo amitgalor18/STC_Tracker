@@ -352,6 +352,9 @@ class Tracker:
                     # update u_track here
                     u_track = [track_indices[t_idx] for t_idx in u_track_second]
 
+                    if u_detection_second.shape[0] > 0:
+                        detection_list_reid.append(detection_list_second[u_detection_second]) #update detection list for reid
+                        
                     if matches.shape[0] > 0:
                         second_det_feats = F.grid_sample(reid_feats,
                                                          reid_cts_second[matches[:, 1]].unsqueeze(0).unsqueeze(0),
