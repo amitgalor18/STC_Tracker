@@ -177,7 +177,7 @@ class Tracker:
             t.pos = t.last_pos[-1]
         self.inactive_tracks += tracks
 
-    def add(self, new_det_pos, new_det_scores, new_det_features):
+    def add(self, new_det_pos, new_det_scores, new_det_features, detection_list_remained):
         """Initializes new Track objects and saves them."""
         num_new = new_det_pos.size(0)
         for i in range(num_new):
@@ -188,7 +188,8 @@ class Tracker:
                 new_det_features[i].view(1, -1),
                 self.inactive_patience,
                 self.max_features_num,
-                self.motion_model_cfg['n_steps'] if self.motion_model_cfg['n_steps'] > 0 else 1
+                self.motion_model_cfg['n_steps'] if self.motion_model_cfg['n_steps'] > 0 else 1,
+                feat=detection_list_remained[i].curr_feat
             ))
         self.track_num += num_new 
 
@@ -239,9 +240,9 @@ class Tracker:
             features_keep_first = self.encoder.inference(blob['img'][0].permute(1, 2, 0), detection_list_first) #image shape 3,1080,1920 to 1080,1920,3
             features_keep_second = self.encoder.inference(blob['img'][0].permute(1, 2, 0), detection_list_second)
             for i,d in enumerate(detection_list_first):
-                d.feature = features_keep_first[i]
+                d.curr_feat = features_keep_first[i]
             for i,d in enumerate(detection_list_second):
-                d.feature = features_keep_second[i]
+                d.curr_feat = features_keep_second[i]
 
             # Step 1: first assignment #
             if len(dets) > 0:
@@ -264,7 +265,7 @@ class Tracker:
                                                                         thresh=self.main_args.match_thresh)
 
                 else: # try fuse matching (appearance and iou) 
-                    emb_dists = self.embedding_distance(self.tracks, detection_list_first)
+                    emb_dists = self.embedding_distance(self.tracks.copy(), detection_list_first)
                     raw_emb_dists = emb_dists.copy()
                     emb_dists[emb_dists > self.sim_threshold] = 1.0
                     emb_dists[iou_dist_mask] = 1.0
@@ -513,7 +514,7 @@ class Tracker:
             cost_matrix[row] = lambda_ * cost_matrix[row] + (1 - lambda_) * gating_distance
         return cost_matrix
 
-    def embedding_distance(tracks, detections, metric='cosine'):
+    def embedding_distance(self, tracks, detections, metric='cosine'):
         """
         :param tracks: list[STrack]
         :param detections: list[BaseTrack]
@@ -566,6 +567,7 @@ class Tracker:
 
         if self.do_reid:
 
+            detection_list_remained = detection_list # if no inactive tracks, return all detections
             if len(self.inactive_tracks) > 0:
                 # calculate appearance distances
                 dist_mat, pos = [], []
@@ -634,8 +636,9 @@ class Tracker:
                     new_det_pos = torch.zeros(size=(0, 4), device=self.sample.tensors.device).float()
                     new_det_scores = torch.zeros(size=(0,), device=self.sample.tensors.device).long()
                     new_det_features = torch.zeros(size=(0, 128), device=self.sample.tensors.device).float()
+                detection_list_remained = detection_list[u_detection] #TODO: validate this
 
-        return new_det_pos, new_det_scores, new_det_features
+        return new_det_pos, new_det_scores, new_det_features, detection_list_remained
 
     def add_features(self, new_features):
         """Adds new appearance features to active tracks."""
@@ -776,6 +779,8 @@ class Tracker:
 
             #############################
 
+            # extract tracking features:
+
             [det_pos, det_scores, dets_features_birth,detection_list_reid] = self.tracks_dets_matching_tracking(
                 blob=blob, raw_dets=det_pos, raw_scores=det_scores, pre2cur_cts=predicted_pre2cur_cts, pos=mypos, reid_cts=reid_cts,
                 reid_feats=reid_features, batch = blob, detection_list=detection_list) #changed pre2cur_cts to predicted_pre2cur_cts from strongSORT kalman
@@ -843,13 +848,13 @@ class Tracker:
             assert det_pos.shape[0] == dets_features_birth.shape[0] == det_scores.shape[0]
             # try to re-identify tracks
             
-            det_pos, det_scores, dets_features_birth = self.reid(blob, det_pos, det_scores, dets_features_birth, detection_list=detection_list_reid)
+            det_pos, det_scores, dets_features_birth, detection_list_reid = self.reid(blob, det_pos, det_scores, dets_features_birth, detection_list=detection_list_reid)
 
             assert det_pos.shape[0] == dets_features_birth.shape[0] == det_scores.shape[0]
 
             # add new
             if det_pos.nelement() > 0:
-                self.add(det_pos, det_scores, dets_features_birth)
+                self.add(det_pos, det_scores, dets_features_birth, detection_list_reid)
         #############################
         # save Kalman filter result # TODO: remove this section after testing
         #############################
@@ -1131,7 +1136,8 @@ class Detection(object): #from strongSORT
     def __init__(self, tlbr, confidence, feature):
         self.tlbr = tlbr.cpu().numpy() #np.asarray(tlwh, dtype=np.float)
         self.confidence = float(confidence)
-        self.feature = np.asarray(feature, dtype=np.float32)
+        self.curr_feat = np.asarray(feature, dtype=np.float32)
+        # self.curr_feat=self.feature #pointer to current feature
 
     # def to_tlbr(self):
         # """Convert bounding box to format `(min x, min y, max x, max y)`, i.e.,
