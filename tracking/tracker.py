@@ -57,7 +57,7 @@ from util import box_ops
 import matplotlib.pyplot as plt
 import cv2
 # from BOTSORT.tracker.gmc import GMC
-from StrongSORT.deep_sort.kalman_filter import KalmanFilter
+from tracking.kalman_filter import KalmanFilter
 import pandas as pd
 from fast_reid.fast_reid_interface import FastReIDInterface
 from scipy.spatial.distance import cdist
