@@ -114,7 +114,7 @@ class Tracker:
         self.pre_img_features = None
         self.pre_encoder_pos_encoding = None
         self.flow = None
-        self.det_thresh = main_args.track_thresh + 0.1
+        self.det_thresh = main_args.track_thresh + 0.1 
         
         self.tracks = []
         #for plotting kalman error:
@@ -129,6 +129,8 @@ class Tracker:
         self.posx_list = []
         self.posy_list = []
         self.kalman_outputs = {}
+        self.embdist_list = []
+        self.ioudist_list = []
         # output inactive tracks:
         # self.show_inactive_age = 3 # show inactive tracks for 3 frames TODO: make it configurable
         self.encoder = FastReIDInterface(tracker_cfg['fast_reid_config'], tracker_cfg['fast_reid_weights'], tracker_cfg['device'])
@@ -233,6 +235,7 @@ class Tracker:
             dets = raw_dets[remain_inds]
             remain_inds_list = torch.where(remain_inds)[0].tolist() #added for detection list, can't slice list with mask tensor
             detection_list_first = [detection_list[i] for i in remain_inds_list]
+            detection_list_reid = []
             scores_keep = raw_scores[remain_inds]
             reid_cts_keep = reid_cts[remain_inds]
 
@@ -254,24 +257,28 @@ class Tracker:
                 if self.main_args.fuse_scores:
                     iou_dist *= scores_keep[None, :]
 
-                iou_dist = 1 - iou_dist
+                iou_dist = (1 - iou_dist)
                 iou_dist_mask = (iou_dist > self.iou_threshold)
+                iou_dist_np = iou_dist.cpu().numpy()
+                iou_dist_mask_np = iou_dist_mask.cpu().numpy()
+                emb_dists = self.embedding_distance(self.tracks.copy(), detection_list_first) 
+                raw_emb_dists = emb_dists.copy()
+                emb_dists[emb_dists > self.sim_threshold] = 1.0
+                emb_dists[iou_dist_mask_np] = 1.0
+                dist = np.minimum(iou_dist_np, emb_dists) #picking the min of iou and appearance
 
                 # todo recover inactive tracks here ?
                 if self.main_args.iou_recover: 
                     det_feats = F.grid_sample(reid_feats, reid_cts_keep.unsqueeze(0).unsqueeze(0),
-                                                mode='bilinear', padding_mode='zeros', align_corners=False)[:, :, 0, :] #was after assignment, moved to try appearance matching
-                    matches, u_track, u_detection = self.linear_assignment(iou_dist.cpu().numpy(),
+                                                mode='bilinear', padding_mode='zeros', align_corners=False)[:, :, 0, :] 
+                    matches, u_track, u_detection = self.linear_assignment(iou_dist_np,
                                                                         thresh=self.main_args.match_thresh)
-
-                else: # try fuse matching (appearance and iou) 
-                    emb_dists = self.embedding_distance(self.tracks.copy(), detection_list_first)
-                    raw_emb_dists = emb_dists.copy()
-                    emb_dists[emb_dists > self.sim_threshold] = 1.0
-                    emb_dists[iou_dist_mask] = 1.0
-                    dist = np.minimum(iou_dist, emb_dists) #picking the min of iou and appearance
+                 
+                else: # try fuse matching (appearance and iou)
 
                     matches, u_track, u_detection = self.linear_assignment(dist, thresh=self.main_args.match_thresh)
+                    det_feats = F.grid_sample(reid_feats, reid_cts_keep.unsqueeze(0).unsqueeze(0),
+                                                mode='bilinear', padding_mode='zeros', align_corners=False)[:, :, 0, :] #transformer features, not fastreid
                 # dist_mat, pos = [], []
                 # for t in self.tracks:
                     # dist_mat.append(torch.cat([t.test_features(feat.view(1, -1))
@@ -292,14 +299,30 @@ class Tracker:
 
                     # assigned by appearance & iou fuse
                 # matches, u_track, u_detection = self.linear_assignment(dist_mat_np,
-                                                                        #    thresh=self.match_thresh)
+                                                                    #    thresh=self.match_thresh)
+                # if int(batch['frame_name'][:-4])> 5: #TODO: remove after testing
+                #     tr_idx = None
+                #     m_idx = None
+                #     chosen_idx_emb = 5
+                #     for i,t in enumerate(self.tracks):
+                #         if t.id == chosen_idx_emb:
+                #             tr_idx = i
+                #             break
+                #     for i,m in enumerate(matches[:,0]):
+                #         if m == tr_idx:
+                #             m_idx = i
+                #             break
+                #     matched_embdist = raw_emb_dists[matches[m_idx,0], matches[m_idx,1]]
+                #     matched_ioudist = iou_dist_np[matches[m_idx,0], matches[m_idx,1]]
+                #     self.embdist_list.append(matched_embdist)
+                #     self.ioudist_list.append(matched_ioudist)
+                                                                           
                 
-
 
                 if matches.shape[0] > 0:
                     
                     # update track dets, scores #
-                    self.update(detections=detection_list_first, matches=matches, unmatched_tracks=u_track, unmatched_detections=u_detection) #from strongSORT TODO: return to for loop if doesn't work here
+                    self.update(detections=detection_list_first, matches=matches, unmatched_tracks=u_track, unmatched_detections=u_detection) #from strongSORT
                     
                     for idx_track, idx_det in zip(matches[:, 0], matches[:, 1]):
                         t = self.tracks[idx_track]
@@ -335,25 +358,30 @@ class Tracker:
                     remained_tracks_pos = warped_pos[u_track]
                     track_indices = copy.deepcopy(u_track)
                     # print("track_indices: ", track_indices)
+                    iou_dist = box_ops.generalized_box_iou(remained_tracks_pos, dets_second)  # [0, 2]
+                    iou_dist = (1 - iou_dist)
+                    iou_dist_mask = (iou_dist > self.iou_threshold)
+                    iou_dist_np = iou_dist.cpu().numpy()
+                    iou_dist_mask_np = iou_dist_mask.cpu().numpy()
+                    u_track_list = [self.tracks[i] for i in u_track]
+                    emb_dists = self.embedding_distance(u_track_list, detection_list_second)
+                    raw_emb_dists = emb_dists.copy()
+                    emb_dists[emb_dists > self.sim_threshold] = 1.0
+                    emb_dists[iou_dist_mask_np] = 1.0
+                    dist = np.minimum(iou_dist_np, emb_dists)
+
                     if self.main_args.iou_recover:
                         # matching with gIOU
-                        iou_dist = 1 - box_ops.generalized_box_iou(remained_tracks_pos, dets_second)  # [0, 2]
-                        iou_dist_mask = (iou_dist > self.iou_threshold)
-
-                        matches, u_track_second, u_detection_second = self.linear_assignment(iou_dist.cpu().numpy(),thresh=0.4)  # stricter with low-score dets
+                        matches, u_track_second, u_detection_second = self.linear_assignment(iou_dist_np,thresh=0.4)  # stricter with low-score dets
                     else: # try fuse matching (appearance and iou)
-                        emb_dists = self.embedding_distance(self.tracks[u_track], detection_list_second)
-                        raw_emb_dists = emb_dists.copy()
-                        emb_dists[emb_dists > self.sim_threshold] = 1.0
-                        emb_dists[iou_dist_mask] = 1.0
-                        dist = np.minimum(iou_dist, emb_dists)
-                        matches, u_track_second, u_detection_second = self.linear_assignment(dist, thresh=self.main_args.match_thresh) #TODO: change to smaller thresh like in iou
+
+                        matches, u_track_second, u_detection_second = self.linear_assignment(dist, thresh=0.4) #stricter with low score dets 
 
                     # update u_track here
                     u_track = [track_indices[t_idx] for t_idx in u_track_second]
-
-                    if u_detection_second.shape[0] > 0:
-                        detection_list_reid.append(detection_list_second[u_detection_second]) #update detection list for reid
+                    if len(u_detection_second) > 0:
+                        for i in u_detection_second:
+                            detection_list_reid.append(detection_list_second[i])
                         
                     if matches.shape[0] > 0:
                         second_det_feats = F.grid_sample(reid_feats,
@@ -378,7 +406,7 @@ class Tracker:
             pos_birth = torch.zeros(size=(0, 4), device=pos.device, dtype=pos.dtype)
             scores_birth = torch.zeros(size=(0,), device=pos.device).long()
             dets_features_birth = torch.zeros(size=(0, 64), device=pos.device, dtype=pos.dtype)
-
+            detection_list_reid = []
 
         # put inactive tracks
         self.new_tracks = []
@@ -500,6 +528,7 @@ class Tracker:
         for i in range(out_boxes.shape[0]):
             detection_list.append(Detection(out_boxes[i,:], out_scores[i], feature=None))
         
+
         # post processing #
 
         return out_boxes, out_scores, pre2cur_cts, mypos, reid_cts, outputs['reid'][0], detection_list
@@ -532,6 +561,8 @@ class Tracker:
         track_features = np.asarray([track.smooth_feat for track in tracks], dtype=np.float)
 
         cost_matrix = np.maximum(0.0, cdist(track_features, det_features, metric))  # / 2.0  # Nomalized features
+        #normalize cost_matrix
+        # cost_matrix = (cost_matrix.T / np.max(cost_matrix.T, axis=0)).T #normalize to [0,1] by row
         return cost_matrix
 
     def get_pos(self):
@@ -587,23 +618,24 @@ class Tracker:
                 dist_mat_np = dist_mat.cpu().numpy()
                 
                 # # calculate IoU distances
-                if self.main_args.iou_recover:
-                    iou_dist = 1 - box_ops.generalized_box_iou(pos, new_det_pos)
-
-                    matches, u_track, u_detection = self.linear_assignment(iou_dist.cpu().numpy(),
+                iou_dist = box_ops.generalized_box_iou(pos, new_det_pos)
+                iou_dist = (1 - iou_dist)
+                iou_dist_mask = (iou_dist > self.iou_threshold)
+                iou_dist_np = iou_dist.cpu().numpy()
+                iou_dist_mask_np = iou_dist_mask.cpu().numpy()
+                if self.main_args.iou_recover: 
+                    
+                    matches, u_track, u_detection = self.linear_assignment(iou_dist_np,
                                                                            thresh=self.main_args.match_thresh)
-                else:
+                else: # try fuse matching (appearance and iou) 
+                    
+                    emb_dists = self.embedding_distance(self.inactive_tracks.copy(), detection_list)
+                    raw_emb_dists = emb_dists.copy()
+                    emb_dists[emb_dists > self.sim_threshold] = 1.0
+                    emb_dists[iou_dist_mask_np] = 1.0
+                    dist = np.minimum(iou_dist_np, emb_dists) #picking the min of iou and appearance
 
-                    #assigned by fusing iou and appearance
-                    # lambda_ = 0.2
-                    # iou_dist = 1 - box_ops.generalized_box_iou(pos, new_det_pos)
-                    # for row, tracks in enumerate(self.inactive_tracks):
-
-                        # dist_mat_np[row] = lambda_ * dist_mat_np[row] + (1 - lambda_) * iou_dist.cpu().numpy()[row]
-
-                    # assigned by appearance
-                    matches, u_track, u_detection = self.linear_assignment(dist_mat_np,
-                                                                           thresh=self.reid_sim_threshold)
+                    matches, u_track, u_detection = self.linear_assignment(dist, thresh=self.main_args.match_thresh)
 
                 assigned = []
                 remove_inactive = []
@@ -615,15 +647,15 @@ class Tracker:
                         # inactive tracks reactivation #
                         # print('dist:', dist_mat_np[r, c])
                         # print('sim threshold:', self.reid_sim_threshold)
-                        if dist_mat[r, c] <= self.reid_sim_threshold or not self.main_args.iou_recover: #TODO: used to depend on iou, remove if doesn't work
-                            t = self.inactive_tracks[r]
-                            self.tracks.append(t)
-                            t.count_inactive = 0
-                            t.pos = new_det_pos[c].view(1, -1)
-                            t.reset_last_pos()
-                            t.add_features(new_det_features[c].view(1, -1))
-                            assigned.append(c)
-                            remove_inactive.append(t)
+                        # if dist_mat[r, c] <= self.reid_sim_threshold or not self.main_args.iou_recover: #TODO: used to depend on iou, remove if doesn't work
+                        t = self.inactive_tracks[r]
+                        self.tracks.append(t)
+                        t.count_inactive = 0
+                        t.pos = new_det_pos[c].view(1, -1)
+                        t.reset_last_pos()
+                        t.add_features(new_det_features[c].view(1, -1))
+                        assigned.append(c)
+                        remove_inactive.append(t)
                     
 
                 for t in remove_inactive:
@@ -639,7 +671,8 @@ class Tracker:
                     new_det_pos = torch.zeros(size=(0, 4), device=self.sample.tensors.device).float()
                     new_det_scores = torch.zeros(size=(0,), device=self.sample.tensors.device).long()
                     new_det_features = torch.zeros(size=(0, 128), device=self.sample.tensors.device).float()
-                detection_list_remained = detection_list[u_detection] #TODO: validate this
+                
+                detection_list_remained = [detection_list[i] for i in u_detection] #TODO: validate this
 
         return new_det_pos, new_det_scores, new_det_features, detection_list_remained
 
@@ -666,6 +699,8 @@ class Tracker:
                 
             elif track.count_inactive < track._max_age:
                 assert track.mean[3] > 0, "Error: track height is negative before prediction! track id: {} track mean: {}".format(track.id, track.mean)
+                track.mean[6] = 0 #reset a velocity
+                track.mean[7] = 0 #reset h velocity
                 inactive_pred_pos = track.predict() #predict inactive track locations as well
         return pred_positions
 
@@ -689,7 +724,7 @@ class Tracker:
                 self.inactive_tracks[track_idx].mean = self.inactive_tracks[track_idx].mean.reshape(8) 
             elif is_2nd_assignment:
                 actual_track_idx = track_indices[track_idx]
-                self.tracks[actual_track_idx].update(detections[detection_idx])
+                self.tracks[actual_track_idx].update(detections[detection_idx], is_2nd_assignment= True)
                 self.tracks[actual_track_idx].mean = self.tracks[actual_track_idx].mean.reshape(8)
             else:
                 self.tracks[track_idx].update(detections[detection_idx])
@@ -754,7 +789,7 @@ class Tracker:
             #############################
             # save Kalman filter result # TODO: remove this section after testing
             #############################
-            # chosen_idx = 4
+            # chosen_idx = 14
             # t_idx = None
             # for i,t in enumerate(self.tracks):
             #     if t.id ==chosen_idx:
@@ -800,6 +835,10 @@ class Tracker:
         detection_list_reid = [detection_list_reid[j] for j in valid_dets_list_idx]
         det_scores = det_scores[valid_dets_idx]
         dets_features_birth = dets_features_birth[valid_dets_idx]
+        #extract features
+        features_keep = self.encoder.inference(blob['img'][0].permute(1, 2, 0), detection_list_reid) #image shape 3,1080,1920 to 1080,1920,3
+        for i,d in enumerate(detection_list_reid):
+                d.curr_feat = features_keep[i]
 
         if self.public_detections:
             # no pub dets => in def detect = no private detection
@@ -848,12 +887,12 @@ class Tracker:
 
         if det_pos.nelement() > 0:
 
-            assert det_pos.shape[0] == dets_features_birth.shape[0] == det_scores.shape[0]
+            assert det_pos.shape[0] == dets_features_birth.shape[0] == det_scores.shape[0] == len(detection_list_reid)
             # try to re-identify tracks
             
             det_pos, det_scores, dets_features_birth, detection_list_reid = self.reid(blob, det_pos, det_scores, dets_features_birth, detection_list=detection_list_reid)
 
-            assert det_pos.shape[0] == dets_features_birth.shape[0] == det_scores.shape[0]
+            assert det_pos.shape[0] == dets_features_birth.shape[0] == det_scores.shape[0] == len(detection_list_reid)
 
             # add new
             if det_pos.nelement() > 0:
@@ -1089,7 +1128,7 @@ class Track(object):
         return pred_pos
 
     
-    def update(self, detection):
+    def update(self, detection, is_2nd_assignment=False):
         """Kalman filter measurement update
        
         detection : The associated detection object.
@@ -1097,8 +1136,8 @@ class Track(object):
         """
         self.mean, self.covariance = self.kf.update(self.mean.reshape(8), self.covariance, detection.to_xyah().reshape(1,4), detection.confidence)
 
-        if detection.feature:
-            self.update_features(detection.feature)
+        if detection.curr_feat is not None and not is_2nd_assignment:
+            self.update_features(detection.curr_feat)
         # feature = detection.feature / np.linalg.norm(detection.feature) #TODO: declare detection dict with feature key
         # if opt.EMA:
         #     smooth_feat = opt.EMA_alpha * self.features[-1] + (1 - opt.EMA_alpha) * feature
@@ -1136,7 +1175,7 @@ class Detection(object): #from strongSORT
 
     """
 
-    def __init__(self, tlbr, confidence, feature):
+    def __init__(self, tlbr, confidence, feature=None):
         self.tlbr = tlbr.cpu().numpy() #np.asarray(tlwh, dtype=np.float)
         self.confidence = float(confidence)
         self.curr_feat = np.asarray(feature, dtype=np.float32)

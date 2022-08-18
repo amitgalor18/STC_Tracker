@@ -74,7 +74,7 @@ class FastReIDInterface:
         self.pH, self.pW = self.cfg.INPUT.SIZE_TEST
 
     def inference(self, image, detections):
-        image = image.cpu().numpy() #torch image doesn't allow ::-1
+        image = image.cpu().numpy()*255 #torch image doesn't allow ::-1
         if detections is None or np.size(detections) == 0:
             return []
 
@@ -92,9 +92,11 @@ class FastReIDInterface:
 
             # the model expects RGB inputs
             patch = patch[:, :, ::-1]
-
+            if patch.shape[0] == 0 or patch.shape[1] == 0:
+                patch = image[0:1,0:1,:] #Amit: if patch is empty, use corner pixel
             # Apply pre-processing to image.
             patch = cv2.resize(patch, tuple(self.cfg.INPUT.SIZE_TEST[::-1]), interpolation=cv2.INTER_LINEAR)
+
             # patch, scale = preprocess(patch, self.cfg.INPUT.SIZE_TEST[::-1])
 
             # plt.figure()

@@ -13,7 +13,7 @@ tracktor:
   frame_split: [0.0, 1.0]
 
   tracker:
-    track_thresh: 0.3
+    track_thresh: 0.3 # was 0.3
     match_thresh: 0.9
     motion_model:
       enabled: False
@@ -40,6 +40,6 @@ tracktor:
     fast_reid_config: /workspace/TransCenterV2/fast_reid/configs/MOT17/sbs_S50.yml
     fast_reid_weights: /workspace/TransCenterV2/model_zoo/mot17_sbs_S50.pth
     device: gpu
-    sim_threshold: 0.25 #embedding gaussians show 0.2-0.25 is better than 0.5
-    iou_threshold: 0.5
+    sim_threshold: 0.4 #embedding gaussians show 0.2-0.25 is better than 0.5
+    iou_threshold: 0.8
 
