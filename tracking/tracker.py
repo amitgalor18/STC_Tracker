@@ -279,27 +279,7 @@ class Tracker:
                     matches, u_track, u_detection = self.linear_assignment(dist, thresh=self.main_args.match_thresh)
                     det_feats = F.grid_sample(reid_feats, reid_cts_keep.unsqueeze(0).unsqueeze(0),
                                                 mode='bilinear', padding_mode='zeros', align_corners=False)[:, :, 0, :] #transformer features, not fastreid
-                # dist_mat, pos = [], []
-                # for t in self.tracks:
-                    # dist_mat.append(torch.cat([t.test_features(feat.view(1, -1))
-                                            #    for feat in det_feats], dim=1))
-                    # pos.append(t.pos)
-                # if len(dist_mat) > 1:
-                    # dist_mat = torch.cat(dist_mat, 0)
-                    # pos = torch.cat(pos, 0)
-                # else:
-                    # dist_mat = dist_mat[0]
-                    # pos = pos[0]
-                # dist_mat_np = dist_mat.cpu().numpy()
-                # lambda_ = 0.5
                 
-                # for row, tracks in enumerate(self.tracks):
-
-                    # dist_mat_np[row] = lambda_ * dist_mat_np[row] + (1 - lambda_) * iou_dist.cpu().numpy()[row]
-
-                    # assigned by appearance & iou fuse
-                # matches, u_track, u_detection = self.linear_assignment(dist_mat_np,
-                                                                    #    thresh=self.match_thresh)
                 # if int(batch['frame_name'][:-4])> 5: #TODO: remove after testing
                 #     tr_idx = None
                 #     m_idx = None
@@ -334,7 +314,6 @@ class Tracker:
 
                 pos_birth = dets[u_detection, :] # dets are the high score dets
                 if len(u_detection)>0:
-                    # u_det_list_idx = torch.where(u_detection)[0].tolist() #added for detection list, can't slice list with mask tensor
                     detection_list_reid = [detection_list_first[i] for i in u_detection] #update detection list for reid
                 else:
                     detection_list_reid = []
@@ -415,7 +394,6 @@ class Tracker:
                 # t.pos = t.last_pos[-1]
                 t.pos = t.xyah_to_tlbr(t.mean[:4])
                 assert (t.pos[:,2:]>t.pos[:,:2]).all(), "wrong pos: {}".format(t.pos)
-                # t.mean = Track.tlbr_pos_to_tlwh(t.pos) #added for gmc
                 self.inactive_tracks += [t]
             else: # keep
                 self.new_tracks.append(t)
@@ -730,12 +708,7 @@ class Tracker:
                 self.tracks[track_idx].update(detections[detection_idx])
                 self.tracks[track_idx].mean = self.tracks[track_idx].mean.reshape(8) #TODO: remove this line if doesn't work
                 assert self.tracks[track_idx].mean[3] > 1, "Error: track height is very small!"
-        # for track_idx in unmatched_tracks:
-            # self.tracks[track_idx].mark_missed()
-        # for detection_idx in unmatched_detections:
-            # self._initiate_track(detections[detection_idx]) #TODO: add this if we use tentative tracks
-        # self.tracks = [t for t in self.tracks] #if not t.is_deleted()]
-
+        
         # Update distance metric.
         # active_targets = [t.id for t in self.tracks] #if t.is_confirmed()
         # features, targets = [], []
@@ -852,6 +825,7 @@ class Tracker:
 
             # case 3: Pub det, private dets
             elif det_pos.shape[0] > 0:
+                #print('Public detection mode, case 3: Pub dets, private dets exist')
                 _, _, orig_h, orig_w = blob['img'].shape
                 pub_dets = blob['dets']
                 # using centers
@@ -871,7 +845,7 @@ class Tracker:
                         iou[i, :] = -1
                         valid_private_det_idx.append(i.item())
                 det_pos = det_pos[valid_private_det_idx]
-                valid_dets_list_idx = torch.where(valid_private_det_idx)[0].tolist()
+                valid_dets_list_idx = valid_private_det_idx #torch.where(valid_private_det_idx)[0].tolist()
                 detection_list_reid = [detection_list_reid[j] for j in valid_dets_list_idx]
                 det_scores = det_scores[valid_private_det_idx]
                 dets_features_birth = dets_features_birth[valid_private_det_idx]
@@ -883,6 +857,7 @@ class Tracker:
                 dets_features_birth = torch.zeros(size=(0, 64), device=self.sample.tensors.device).float()
 
         else:
+            print("not in public detections mode, currently in create new tracks section")
             pass
 
         if det_pos.nelement() > 0:

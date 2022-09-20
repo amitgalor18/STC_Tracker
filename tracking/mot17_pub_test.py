@@ -44,6 +44,7 @@ from tracking.tracker import Tracker
 from tracking.deformable_detr import build as build_model
 import argparse
 from torch.utils.data import DataLoader
+from shutil import copyfile
 torch.set_grad_enabled(False)
 import time
 torch.backends.cudnn.benchmark = True
@@ -128,6 +129,7 @@ def get_args_parser():
 
     parser.add_argument('--mode', default='duel vit', type=str)
 
+    parser.add_argument('--custom', default=None, help='run on a single video for debugging')
 
     return parser
 
@@ -161,6 +163,7 @@ def write_results(all_tracks, out_dir, seq_name=None, frame_offset=0):
                 writer.writerow([frame+frame_offset, i+1, x1+1, y1+1, x2-x1+1, y2-y1+1, -1, -1, -1, -1])
 
 
+
 def main(tracktor):
     torch.manual_seed(tracktor['seed'])
     torch.cuda.manual_seed(tracktor['seed'])
@@ -173,9 +176,10 @@ def main(tracktor):
     main_args.tracking = True
     main_args.clip = False
     main_args.fuse_scores = True
-    main_args.iou_recover = True
+    main_args.iou_recover = False
+    selected_seq = main_args.custom
     device = torch.device(main_args.device)
-    ds = GenericDataset_val(root=main_args.data_dir, valset='test', select_seq='')
+    ds = GenericDataset_val(root=main_args.data_dir, valset='test', select_seq='',train_ratio=1) #change to test
 
     ds.default_resolution[0], ds.default_resolution[1] = main_args.input_h, main_args.input_w
     print(main_args.input_h, main_args.input_w)
@@ -184,14 +188,14 @@ def main(tracktor):
     main_args.input_res = max(main_args.input_h, main_args.input_w)
     main_args.output_res = max(main_args.output_h, main_args.output_w)
     # threshold
-    main_args.track_thresh = 0.3
+    main_args.track_thresh = float(main_args.track_thresh) #was 0.3 #take parser threshold
     main_args.match_thresh = tracktor['tracker']["match_thresh"]
 
     model, criterion, postprocessors = build_model(main_args)
 
     # tracker
     tracker = Tracker(model, None, None, tracktor['tracker'], postprocessor=postprocessors['bbox'], main_args=main_args)
-    tracker.public_detections = True
+    tracker.public_detections = True ######## main difference from mot17_private ########
     tracker.mode = main_args.mode
 
     # dataloader
@@ -201,12 +205,12 @@ def main(tracktor):
     data_loader = DataLoader(ds, 1, shuffle=False, drop_last=False, num_workers=8,
                              pin_memory=True, collate_fn=collate_fn)
     models = [
-     "./model_zoo/MOT17_coco.pth",
+     #"./model_zoo/MOT17_coco.pth",
      "./model_zoo/MOT17_ch.pth",
     ]
     output_dirs = [
-        curr_pth + '/test_models/MOT17_test_coco_pub/',
-        curr_pth + '/test_models/MOT17_test_ch_pub/',
+        #curr_pth + '/test_models/MOT17_test_coco_pub/',
+        curr_pth + '/test_models/' + main_args.output_dir #MOT17_test_ch_pub/',
     ]
 
     for model_dir, output_dir in zip(models, output_dirs):
@@ -225,32 +229,37 @@ def main(tracktor):
         num_frames = 0
         pub_dets = None
         start = 0
+        first_frame = True
         for idx, [samples, meta] in enumerate(data_loader):
             num_frames += 1
             [orig_size, im_name, video_name, orig_img, trans] = meta[0]
 
-            if os.path.exists(output_dir + "txt/" + video_name + '.txt'):
+            #if os.path.exists(output_dir + "txt/" + video_name + '.txt'):
+                #continue
+            if selected_seq is not None and video_name != selected_seq:
                 continue
-
             if video_name != pre_seq_name:
+                print('selected seq: ',selected_seq)
                 print("video_name", video_name)
                 # save results #
-                if not os.path.exists(output_dir + "txt/" + pre_seq_name + '.txt') and idx != 0:
+                if idx != 0: #not os.path.exists(output_dir + "txt/" + pre_seq_name + '.txt') and idx != 0:
                     # save results #
                     results = tracker.get_results()
                     print(f"Tracks found: {len(results)}")
                     print(f"Runtime for {pre_seq_name}: {time.time() - start :.2f} s.")
                     write_results(results, tracktor['output_dir'], seq_name=pre_seq_name, frame_offset=frame_offset)
-
+                if os.path.exists(output_dir + "txt/" + video_name + '.txt'):
+                    print(output_dir + "txt/" + video_name + '.txt exists. Overwriting')
                 # update pre_seq_name #
                 pre_seq_name = video_name
+                first_frame = True
 
                 pub_dets = ds.VidPubDet[video_name]
 
                 # reset tracker #
-                tracker.reset()
+                tracker.reset(seq_name=video_name)
                 # update inactive patience according to framerate
-                seq_info_path = os.path.join(main_args.data_dir, "test", video_name, 'seqinfo.ini')
+                seq_info_path = os.path.join(main_args.data_dir, "test", video_name, 'seqinfo.ini') #TODO: change to test
                 print("seq_info_path ", seq_info_path)
                 assert os.path.exists(seq_info_path)
                 with open(seq_info_path, 'r') as f:
@@ -270,7 +279,8 @@ def main(tracktor):
             # starts with 0 #
             pub_det = pub_dets[int(im_name[:-4]) - 1]
 
-            print("step frame: ", im_name)
+            if int(im_name[:-4]) % 20 ==0: #Amit: added to lighten the log 
+                print("step frame: ", im_name)
 
             batch = {'frame_name': im_name, 'video_name': video_name, 'img': orig_img.to(device),
                      'samples': samples[0].to(device), 'orig_size': orig_size.unsqueeze(0).to(device),
@@ -278,6 +288,9 @@ def main(tracktor):
                                                                                                                 4),
                      'trans': trans}
 
+            if not first_frame:
+                tracker.step_reidV3_pre_tracking_vit(batch)
+            else:
 
             # # # plot inp, padding mask
             # from PIL import Image, ImageDraw
@@ -299,12 +312,16 @@ def main(tracktor):
             # img_pil.save(f"./outputs/see_pub_det/{im_name[:-4]}.png")
             #
             # # # plot #
-            tracker.step_reidV3_pre_tracking_vit(batch)
+                tracker.step_reidV3_pre_tracking_vit(batch)
+            first_frame = False
 
         # save last results #
+        if main_args.custom is not None: #if custom seq was chosen, write only this one
+            video_name = selected_seq
         if not os.path.exists(output_dir + "txt/" + video_name + '.txt'):
             # save results #
             results = tracker.get_results()
+            print(f"Runtime for {video_name}: {time.time() - start :.2f} s.")
             print(f"Tracks found: {len(results)}")
             write_results(results, tracktor['output_dir'], seq_name=video_name, frame_offset=frame_offset)
 
