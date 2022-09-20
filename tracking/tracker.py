@@ -857,7 +857,7 @@ class Tracker:
                 dets_features_birth = torch.zeros(size=(0, 64), device=self.sample.tensors.device).float()
 
         else:
-            print("not in public detections mode, currently in create new tracks section")
+            # print("not in public detections mode, currently in create new tracks section")
             pass
 
         if det_pos.nelement() > 0:

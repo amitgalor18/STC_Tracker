@@ -354,6 +354,7 @@ def main(tracktor):
         if not os.path.exists(output_dir + "txt/" + video_name + '.txt'):
             # save results #
             results = tracker.get_results()
+            print(f"Runtime for {video_name}: {time.time() - start :.2f} s.")
             print(f"Tracks found: {len(results)}")
             write_results(results, tracktor['output_dir'], seq_name=video_name, frame_offset=frame_offset)
             if main_args.AFLink:
