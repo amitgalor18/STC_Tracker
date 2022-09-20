@@ -174,7 +174,7 @@ def main(tracktor):
     main_args.tracking = True
     main_args.noprehm = True
     device = torch.device(main_args.device)
-    ds = GenericDataset_val(root=main_args.data_dir, valset='val', select_seq='')
+    ds = GenericDataset_val(root=main_args.data_dir, valset='val', select_seq='', train_ratio=1)
 
     ds.default_resolution[0], ds.default_resolution[1] = main_args.input_h, main_args.input_w
     print(main_args.input_h, main_args.input_w)
@@ -209,12 +209,12 @@ def main(tracktor):
                              pin_memory=True, collate_fn=collate_fn)
 
     models = [
-     "./model_zoo/MOT20_coco.pth",
+     #"./model_zoo/MOT20_coco.pth",
      "./model_zoo/MOT20_ch.pth",
     ]
     output_dirs = [
-        curr_pth + '/test_models/MOT20_test_coco/',
-        curr_pth + '/test_models/MOT20_test_ch/',
+       # curr_pth + '/test_models/MOT20_test_coco/',
+        curr_pth + '/test_models/'+ main_args.output_dir #MOT20_test_ch/',
     ]
 
     for model_dir, output_dir in zip(models, output_dirs):
@@ -280,8 +280,8 @@ def main(tracktor):
 
             # starts with 0 #
             pub_det = pub_dets[int(im_name[:-4]) - 1]
-
-            print("step frame: ", im_name)
+            if int(im_name[:-4]) % 20 ==0: #Amit: added to lighten the log 
+                print("step frame: ", im_name)
 
             batch = {'frame_name': im_name, 'video_name': video_name, 'img': orig_img.to(device),
                      'samples': samples[0].to(device), 'orig_size': orig_size.unsqueeze(0).to(device),
