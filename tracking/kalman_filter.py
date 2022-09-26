@@ -117,7 +117,9 @@ class KalmanFilter(object):
         motion_cov = np.diag(np.square(np.r_[std_pos, std_vel]))
 
         mean = np.dot(self._motion_mat, mean)
-        # assert mean[3] > 0, "Error: track height is negative!"
+        if mean[3]<0:
+            mean[3] = 0.01
+        assert mean[3] > 0, "Error: track height is negative!"
         covariance = np.linalg.multi_dot((
             self._motion_mat, covariance, self._motion_mat.T)) + motion_cov # Fk*Pk*Fk.T + Qk
 
@@ -176,8 +178,8 @@ class KalmanFilter(object):
             Returns the measurement-corrected state distribution.
 
         """
-        assert measurement[:,3] > 1, "Error: track height is very small!"
-        assert measurement[:,2] > 0, "Error: track aspect ratio is negative!"
+        # assert measurement[:,3] > 1, "Error: track height is very small!"
+        # assert measurement[:,2] > 0, "Error: track aspect ratio is negative!"
 
         projected_mean, projected_cov = self.project(mean, covariance, confidence)
 

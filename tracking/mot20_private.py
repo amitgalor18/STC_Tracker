@@ -45,6 +45,7 @@ from tracking.tracker import Tracker
 from tracking.deformable_detr import build as build_model
 import argparse
 from torch.utils.data import DataLoader
+import time
 
 torch.set_grad_enabled(False)
 torch.backends.cudnn.benchmark = True
@@ -187,7 +188,7 @@ def main(tracktor):
     main_args.match_thresh = tracktor['tracker']["match_thresh"]
     main_args.clip = True
     main_args.fuse_scores = False
-    main_args.iou_recover = True
+    main_args.iou_recover = False
 
     model, criterion, postprocessors = build_model(main_args)
     n_parameters = sum(p.numel() for p in model.parameters())
@@ -248,8 +249,8 @@ def main(tracktor):
                 if not os.path.exists(output_dir + "txt/" + pre_seq_name + '.txt') and idx != 0:
                     # save results #
                     results = tracker.get_results()
+                    print(f"Runtime for {pre_seq_name}: {time.time() - start :.2f} s.")
                     print(f"Tracks found: {len(results)}")
-
                     write_results(results, tracktor['output_dir'], seq_name=pre_seq_name, frame_offset=frame_offset)
 
                 # update pre_seq_name #
@@ -276,7 +277,7 @@ def main(tracktor):
                 # init offset #
                 frame_offset = int(im_name[:-4])
                 print("frame offset : ", frame_offset)
-
+                start = time.time()
 
             # starts with 0 #
             pub_det = pub_dets[int(im_name[:-4]) - 1]
@@ -299,6 +300,7 @@ def main(tracktor):
         if not os.path.exists(output_dir + "txt/" + video_name + '.txt'):
             # save results #
             results = tracker.get_results()
+            print(f"Runtime for {video_name}: {time.time() - start :.2f} s.")
             print(f"Tracks found: {len(results)}")
             write_results(results, tracktor['output_dir'], seq_name=video_name, frame_offset=frame_offset)
 

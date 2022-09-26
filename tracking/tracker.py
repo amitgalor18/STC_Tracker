@@ -666,9 +666,12 @@ class Tracker:
         """
         pred_positions = []
         for track in self.tracks:
-            assert track.mean[3] > 0, "Error: track height is negative before prediction!"
+            #assert track.mean[3] > 0, "Error: track height is negative before prediction!"
             pred_pos = track.predict()
             assert track.mean[3] > 0, "Error: track height is negative!"
+            #if track.mean[3] < 0:
+             #   self.tracks.remove(track) #remove tracks with negative height
+            #else:
             pred_positions.append(pred_pos)
         pred_positions = torch.stack([torch.from_numpy(item).float() for item in pred_positions]).to(device='cuda:0') #original pre2cur_cts is on cuda:0
         for track in self.inactive_tracks:
@@ -707,7 +710,7 @@ class Tracker:
             else:
                 self.tracks[track_idx].update(detections[detection_idx])
                 self.tracks[track_idx].mean = self.tracks[track_idx].mean.reshape(8) #TODO: remove this line if doesn't work
-                assert self.tracks[track_idx].mean[3] > 1, "Error: track height is very small!"
+                # assert self.tracks[track_idx].mean[3] > 1, "Error: track height is very small!"
         
         # Update distance metric.
         # active_targets = [t.id for t in self.tracks] #if t.is_confirmed()

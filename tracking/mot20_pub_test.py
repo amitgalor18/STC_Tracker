@@ -171,7 +171,7 @@ def main(tracktor):
     main_args.tracking = True
     main_args.noprehm = True
     device = torch.device(main_args.device)
-    ds = GenericDataset_val(root=main_args.data_dir, valset='test', select_seq='')
+    ds = GenericDataset_val(root=main_args.data_dir, valset='test', select_seq='', train_ratio=1)
 
     ds.default_resolution[0], ds.default_resolution[1] = main_args.input_h, main_args.input_w
     print(main_args.input_h, main_args.input_w)
@@ -184,7 +184,7 @@ def main(tracktor):
     main_args.match_thresh = tracktor['tracker']["match_thresh"]
     main_args.clip = True
     main_args.fuse_scores = False
-    main_args.iou_recover = True
+    main_args.iou_recover = False
 
     model, criterion, postprocessors = build_model(main_args)
 
@@ -201,12 +201,12 @@ def main(tracktor):
                              pin_memory=True, collate_fn=collate_fn)
 
     models = [
-     "./model_zoo/MOT20_coco.pth",
+     #"./model_zoo/MOT20_coco.pth",
      "./model_zoo/MOT20_ch.pth",
     ]
     output_dirs = [
-        curr_pth + '/test_models/MOT20_test_coco_pub/',
-        curr_pth + '/test_models/MOT20_test_ch_pub/',
+        #curr_pth + '/test_models/MOT20_test_coco_pub/',
+        curr_pth + '/test_models/'+ main_args.output_dir #MOT20_test_ch_pub/',
     ]
 
     for model_dir, output_dir in zip(models, output_dirs):
