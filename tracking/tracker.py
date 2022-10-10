@@ -1,8 +1,9 @@
-## TransCenter: Transformers with Dense Representations for Multiple-Object Tracking
-## Copyright Inria
+## STC - Strong TransCenter 
 ## Year 2022
-## Contact : yihong.xu@inria.fr
+## Contact : amitgalor@tau.ac.il
 ##
+## This code is derived from the code of TransCenter: https://github.com/yihongXU/TransCenter
+## Visit their repository for more information and updates to the original code.
 ## TransCenter is free software: you can redistribute it and/or modify
 ## it under the terms of the GNU General Public License as published by
 ## the Free Software Foundation, either version 3 of the License, or
@@ -27,6 +28,7 @@
 ## TransCenter uses packages from
 ## (1) 2019 Charles Shang. (BSD 3-Clause Licence: https://github.com/CharlesShang/DCNv2)
 ## (2) 2020 fundamentalvision.(Apache License 2.0: https://github.com/fundamentalvision/Deformable-DETR)
+##
 import copy
 import sys
 import os
@@ -56,7 +58,6 @@ from post_processing.decode import generic_decode
 from util import box_ops
 import matplotlib.pyplot as plt
 import cv2
-# from BOTSORT.tracker.gmc import GMC
 from tracking.kalman_filter import KalmanFilter
 import pandas as pd
 from fast_reid.fast_reid_interface import FastReIDInterface
@@ -131,8 +132,7 @@ class Tracker:
         self.kalman_outputs = {}
         self.embdist_list = []
         self.ioudist_list = []
-        # output inactive tracks:
-        # self.show_inactive_age = 3 # show inactive tracks for 3 frames TODO: make it configurable
+
         self.encoder = FastReIDInterface(tracker_cfg['fast_reid_config'], tracker_cfg['fast_reid_weights'], tracker_cfg['device'])
 
 
@@ -147,7 +147,6 @@ class Tracker:
         self.pre_encoder_pos_encoding = None
         self.flow = None
         self.obj_detect.masks_flatten = None
-        # self.gmc = GMC(method='file', verbose=[seq_name, False]) #Amit: added for camera correction
 
         if hard:
             self.track_num = 0
@@ -216,10 +215,7 @@ class Tracker:
                                     pre2cur_cts[:, [0]] + 0.5 * pos_w,
                                     pre2cur_cts[:, [1]] + 0.5 * pos_h], dim=1) 
 
-            # warp positions to current frame using gmc #
-            # warp = self.gmc.apply(batch['img'])
-            # warped_pos = Track.multi_gmc(self.tracks, warp) 
-            # warped_pos = Track.tlwh_pos_to_tlbr(warped_pos) #transcenter works with tlbr pos but the mean is in tlwh pos
+
             # index low-score dets #
             inds_low = raw_scores > 0.1  # was 0.1 TODO: change back after testing 
             inds_high = raw_scores < self.main_args.track_thresh
@@ -623,8 +619,6 @@ class Tracker:
 
                     for r, c in zip(matches[:, 0], matches[:, 1]):
                         # inactive tracks reactivation #
-                        # print('dist:', dist_mat_np[r, c])
-                        # print('sim threshold:', self.reid_sim_threshold)
                         # if dist_mat[r, c] <= self.reid_sim_threshold or not self.main_args.iou_recover: #TODO: used to depend on iou, remove if doesn't work
                         t = self.inactive_tracks[r]
                         self.tracks.append(t)
@@ -650,7 +644,7 @@ class Tracker:
                     new_det_scores = torch.zeros(size=(0,), device=self.sample.tensors.device).long()
                     new_det_features = torch.zeros(size=(0, 128), device=self.sample.tensors.device).float()
                 
-                detection_list_remained = [detection_list[i] for i in u_detection] #TODO: validate this
+                detection_list_remained = [detection_list[i] for i in u_detection] 
 
         return new_det_pos, new_det_scores, new_det_features, detection_list_remained
 
@@ -666,12 +660,8 @@ class Tracker:
         """
         pred_positions = []
         for track in self.tracks:
-            #assert track.mean[3] > 0, "Error: track height is negative before prediction!"
             pred_pos = track.predict()
             assert track.mean[3] > 0, "Error: track height is negative!"
-            #if track.mean[3] < 0:
-             #   self.tracks.remove(track) #remove tracks with negative height
-            #else:
             pred_positions.append(pred_pos)
         pred_positions = torch.stack([torch.from_numpy(item).float() for item in pred_positions]).to(device='cuda:0') #original pre2cur_cts is on cuda:0
         for track in self.inactive_tracks:
@@ -712,18 +702,6 @@ class Tracker:
                 self.tracks[track_idx].mean = self.tracks[track_idx].mean.reshape(8) #TODO: remove this line if doesn't work
                 # assert self.tracks[track_idx].mean[3] > 1, "Error: track height is very small!"
         
-        # Update distance metric.
-        # active_targets = [t.id for t in self.tracks] #if t.is_confirmed()
-        # features, targets = [], []
-        # for track in self.tracks:
-            # if not track.is_confirmed():
-                # continue
-            # features += track.features
-            # targets += [track.id for _ in track.features]
-            # if not opt.EMA:
-            # track.features = []
-        # self.metric.partial_fit(
-            # np.asarray(features), np.asarray(targets), active_targets)
 
     @torch.no_grad()
     def step_reidV3_pre_tracking_vit(self, blob):
@@ -968,9 +946,6 @@ class Track(object):
         self.last_v = torch.Tensor([])
         self.gt_id = None
 
-        # self.mean = self.tlbr_pos_to_tlwh(pos)
-        # epsilon = 1e-8
-        # self.covariance = np.ones((4, 4)) * epsilon
         self.hits = 1
         self.age = 1
         self.time_since_update = 0
@@ -1030,8 +1005,6 @@ class Track(object):
         tlwh[:, 2] = tlbr[:, 2] - tlbr[:, 0]
         tlwh[:, 3] = tlbr[:, 3] - tlbr[:, 1]
 
-        # tlwh = tlwh.tolist()
-        # tlwh = [torch.from_numpy(item).float() for item in tlwh]
         return tlwh
     
     @staticmethod
@@ -1042,7 +1015,7 @@ class Track(object):
         tlbr[:, 1] = tlwh[:, 1]
         tlbr[:, 2] = tlwh[:, 0] + tlwh[:, 2]
         tlbr[:, 3] = tlwh[:, 1] + tlwh[:, 3]
-        # tlbr = [torch.from_numpy(item).float() for item in tlbr]
+
         tlbr = torch.from_numpy(tlbr).float().squeeze().cuda()
         return tlbr
     
@@ -1054,8 +1027,7 @@ class Track(object):
         xyah[:, 1] = (tlbr[:, 1] + tlbr[:, 3]) / 2 # y center
         xyah[:, 2] = (tlbr[:, 2] - tlbr[:, 0])/(tlbr[:, 3] - tlbr[:, 1]) # aspect ratio (width/height)
         xyah[:, 3] = tlbr[:, 3]-tlbr[:, 1] # height
-        # xyah = xyah.tolist()
-        # xyah = [torch.from_numpy(item).float() for item in xyah]
+
         return xyah.T #kalman filter expects a column vector
     
     @staticmethod
@@ -1071,31 +1043,6 @@ class Track(object):
         tlbr = torch.from_numpy(tlbr).float().cuda()
         return tlbr
     
-    # @staticmethod
-    # def multi_gmc(stracks, H=np.eye(2, 3)):
-    #     if len(stracks) > 0:
-    #         multi_mean = np.asarray([st.mean.copy() for st in stracks])
-    #         multi_covariance = np.asarray([st.covariance for st in stracks])
-
-    #         R = H[:2, :2] #size (2,2)
-    #         R8x8 = np.kron(np.eye(4, dtype=float), R) #size (8, 8) 
-    #         R4x4 = np.kron(np.eye(2, dtype=float), R) #size (4, 4)
-    #         t = H[:2, 2, np.newaxis] #it raised a valueError without the newaxis
-    #         means = []
-    #         for i, (mean, cov) in enumerate(zip(multi_mean, multi_covariance)):
-    #             # mean = R8x8.dot(mean)
-    #             mean = mean.T
-    #             mean = R4x4.dot(mean) # changed since mean is now a 4x1 vector 
-    #             mean[:2] += t
-    #             # cov = R8x8.dot(cov).dot(R8x8.transpose())
-    #             cov = R4x4.dot(cov).dot(R4x4.transpose())
-
-    #             stracks[i].mean = mean.T
-    #             stracks[i].covariance = cov
-    #             means.append(mean)
-
-
-    #         return means
     
     def predict(self):
         " Kalman prediction step"
@@ -1126,8 +1073,7 @@ class Track(object):
 
         self.hits += 1
         self.time_since_update = 0
-        # if self.state == TrackState.Tentative and self.hits >= self._n_init:
-        #     self.state = TrackState.Confirmed
+
 
 class Detection(object): #from strongSORT
     """
@@ -1159,13 +1105,6 @@ class Detection(object): #from strongSORT
         self.curr_feat = np.asarray(feature, dtype=np.float32)
         # self.curr_feat=self.feature #pointer to current feature
 
-    # def to_tlbr(self):
-        # """Convert bounding box to format `(min x, min y, max x, max y)`, i.e.,
-        # `(top left, bottom right)`.
-        # """
-        # ret = self.tlwh.copy()
-        # ret[2:] += ret[:2]
-        # return ret
 
     def to_xyah(self):
         """Convert bounding box to format `(center x, center y, aspect ratio,
