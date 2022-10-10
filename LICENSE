@@ -1,26 +1,31 @@
-TransCenter: Transformers with Dense Representations for Multiple-Object Tracking
-Copyright Inria
+STC - Strong TransCenter 
 Year 2022
-Contact : yihong.xu@inria.fr
+Contact : amitgalor@tau.ac.il
 
-TransCenter is free software: you can redistribute it and/or modify
+This code is modtly derived from the code of TransCenter: https://github.com/yihongXU/TransCenter
+Visit their repository for more information and updates to the original code.
+
+STC is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 
-TransCenter is distributed in the hope that it will be useful,
+STC is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
-along with this program, TransCenter.  If not, see <http://www.gnu.org/licenses/> and the LICENSE file.
+along with this program, STC.  If not, see <http://www.gnu.org/licenses/> and the LICENSE file.
 
-TransCenter has code derived from
-(1) Deformable-DETR, https://github.com/fundamentalvision/Deformable-DETR, distributed under Apache License 2.0 2020 fundamentalvision.
-(2) tracking_wo_bnw, https://github.com/phil-bergmann/tracking_wo_bnw, distributed under GNU General Public License v3.0 2020 Philipp Bergmann, Tim Meinhardt.
-(3) DETR, https://github.com/facebookresearch/detr/, distributed under Apache License 2.0 2020 Facebook.
-(4) CenterTrack, https://github.com/xingyizhou/CenterTrack, distributed under MIT License 2020 Xingyi Zhou.
+STC has code derived from
+(1) TransCenter, https://github.com/yihongXU/TransCenter, distributed under GNU General Public License v3.0
+(2) Deformable-DETR, https://github.com/fundamentalvision/Deformable-DETR, distributed under Apache License 2.0 2020 fundamentalvision.
+(3) tracking_wo_bnw, https://github.com/phil-bergmann/tracking_wo_bnw, distributed under GNU General Public License v3.0 2020 Philipp Bergmann, Tim Meinhardt.
+(4) DETR, https://github.com/facebookresearch/detr/, distributed under Apache License 2.0 2020 Facebook.
+(5) CenterTrack, https://github.com/xingyizhou/CenterTrack, distributed under MIT License 2020 Xingyi Zhou.
+(6) BoT-SORT, https://github.com/NirAharon/BoT-SORT, distributed under MIT License 2022 Nir Aharon
+(7) StrongSORT, https://github.com/dyhBUPT/StrongSORT, distributed under Apache License 2.0 2022 Yunhao Du
     Below you can find the License associated to this CenterTrack software:
 	--------
      MIT License
@@ -45,11 +50,11 @@ TransCenter has code derived from
 	OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 	SOFTWARE.
     
-TransCenter uses packages from
+STC uses packages from
 (1) DCNv2, https://github.com/CharlesShang/DCNv2, distributed under BSD 3-Clause 2019 Charles Shang.
 (2) MultiScaleDeformableAttention, https://github.com/fundamentalvision/Deformable-DETR distributed under Apache-2.0 license 2020 fundamentalvision.
 
-Below you can find the License associated to this TransCenter software:
+Below you can find the License associated to this STC software:
 
                     GNU GENERAL PUBLIC LICENSE
                        Version 3, 29 June 2007
