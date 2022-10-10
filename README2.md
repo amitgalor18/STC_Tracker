@@ -1,9 +1,6 @@
-## TransCenter V2: Transformers with Dense Representations for Multiple-Object Tracking <br />
-## An update towards a more efficient and powerful TransCenter, TransCenter-Lite. ##
+## Strong-TransCenter: Improved Multi-Object Tracking based on Transformers with Dense Representations <br />
 
-**TransCenter: Transformers with Dense Representations for Multiple-Object Tracking** <br />
-[Yihong Xu](https://team.inria.fr/robotlearn/team-members/yihong-xu/), [Yutong Ban](https://team.inria.fr/perception/team-members/yutong-ban/), [Guillaume Delorme](https://team.inria.fr/robotlearn/team-members/guillaume-delorme/), [Chuang Gan](https://people.csail.mit.edu/ganchuang/), [Daniela Rus](http://danielarus.csail.mit.edu/), [Xavier Alameda-Pineda](http://xavirema.eu/) <br />
-**[[Paper](https://arxiv.org/abs/2103.15145)]** **[[Project](https://team.inria.fr/robotlearn/transcenter-transformers-with-dense-queriesfor-multiple-object-tracking/)]**<br />
+**[[Paper](https://arxiv.org/abs/TBD)]** <br />
 
 <div align="center">
   <img src="https://github.com/yihongXU/TransCenter/raw/main/eTransCenter_pipeline.png" width="1200px" />
@@ -12,41 +9,20 @@
 ## Bibtex
 **If you find this code useful, please star the project and consider citing:** <br />
 ```
-@misc{xu2021transcenter,
-      title={TransCenter: Transformers with Dense Representations for Multiple-Object Tracking}, 
-      author={Yihong Xu and Yutong Ban and Guillaume Delorme and Chuang Gan and Daniela Rus and Xavier Alameda-Pineda},
-      year={2021},
-      eprint={2103.15145},
-      archivePrefix={arXiv},
-      primaryClass={cs.CV}
+@misc{
+
 }
 ```
 
 ## Environment Preparation 
-### Option 1 (recommended):
-We provide a singularity image (similar to docker) containing all the packages we need for TransCenter:
 
-1) Install singularity > 3.7.1:  [https://sylabs.io/guides/3.0/user-guide/installation.html#install-on-linux](https://sylabs.io/guides/3.0/user-guide/installation.html#install-on-linux)
-2) Download one of the singularity images:
 
-[**transcenter_singularity.sif**](https://drive.google.com/file/d/1ln18FLon2HczviuTOxVjEW_1mJ2zhkZF/view?usp=sharing) tested with Nvidia RTX TITAN, Quadro RTX 8000, RTX 2080Ti, Quadro RTX 4000.
-
-- Launch a Singularity image
-```shell
-singularity shell --nv --bind yourLocalPath:yourPathInsideImage YourSingularityImage.sif
-```
-**- -bind: to link a singularity path with a local path. By doing this, you can find data from local PC inside Singularity image;** <br />
-**- -nv: use the local Nvidia driver.**
-
-### Option 2:
-
-You can also build your own environment:
 1) we use anaconda to simplify the package installations, you can download anaconda (4.10.3) here: [https://www.anaconda.com/products/individual](https://www.anaconda.com/products/individual)
 2) you can create your conda env by doing 
 ```
 conda env create -n <env_name> -f eTransCenter.yml
 ```
-3) TransCenter uses Deformable transformer from Deformable DETR. Therefore, we need to install deformable attention modules:
+3) STC uses Deformable transformer from Deformable DETR. Therefore, we need to install deformable attention modules:
 ```
 cd ./to_install/ops
 sh ./make.sh
