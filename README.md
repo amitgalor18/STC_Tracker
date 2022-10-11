@@ -2,6 +2,12 @@
 
 **[[Paper](https://arxiv.org/abs/TBD)]** <br />
 
+Results on MOT17:
+<div align="center">
+  <img src="https://github.com/amitgalor18/STC_Tracker/raw/main/bubble_mot17.png" width="600px" />
+</div>
+
+Algorithm flowchart:
 <div align="center">
   <img src="https://github.com/amitgalor18/STC_Tracker/raw/main/flowchart_v2.PNG" width="1200px" />
 </div>
@@ -26,6 +32,7 @@ Alternatively, you can use the added 'requirements.txt':
 ```
 pip install requirements.txt
 ```
+*Make sure to install the correct torch and torchvision versions matching your CUDA version from the pytorch website: [https://pytorch.org/get-started/previous-versions/]
 
 3) STC uses Deformable transformer from Deformable DETR. Therefore, we need to install deformable attention modules:
 ```
@@ -104,17 +111,17 @@ We also provide the filtered/converted labels:
 ## Model Zoo
 ***For main TransCenterV2 transformer model***:
 
-[PVTv2 pretrained](https://drive.google.com/drive/folders/1h4mvNhYbUqwH04Cd63JZOah4xo97U2H3?usp=sharing): pretrained model from deformable-DETR.
+[PVTv2 pretrained](https://drive.google.com/file/d/17K7qfXXxwsM-afxaIV_4YaATLUNd7iWM/view?usp=sharing): pretrained model from deformable-DETR.
 
-[coco_pretrained](https://drive.google.com/file/d/11FAdJoXS3tPjRSzv4G-yEVa9ABiCmJGE/view?usp=sharing): model trained with coco person dataset.
+[MOT17_trained_with_CH](https://drive.google.com/file/d/1dVUqokxvBWhzvnI6URT0_bZn9tfJ4Oed/view?usp=sharing): model trained on CrowdHuman and MOT17 trainset.
 
-[MOT17_trained_with_CH](https://drive.google.com/file/d/1f_zzZWK3QA0wNhHOiH04hasWWSBbs8gu/view?usp=sharing): model trained on CrowdHuman and MOT17 trainset.
-
-[MOT20_trained_with_CH](https://drive.google.com/file/d/1F65LpeMj7nkvjpoKcweMCymo9aP2Z9ag/view?usp=sharing): model trained on CrowdHuman and MOT20 trainset.
+[MOT20_trained_with_CH](https://drive.google.com/file/d/1Aef8AOUz4M__H_5aVrCElJPPlkwDIjnU/view?usp=sharing): model trained on CrowdHuman and MOT20 trainset.
 
 ***For embedding network fastReID model***:
-[MOT17_SBS_S50](): model trained on mot17 train set
-[MOT20_SBS_S50](): model trained on mot20 train set
+
+[MOT17_SBS_S50](https://drive.google.com/file/d/1V8BSF9mzgMTAMijVEpCkGQxEep4lH0AA/view?usp=sharing): model trained on mot17 train set
+
+[MOT20_SBS_S50](https://drive.google.com/file/d/1vccLHckIYn6vrcOZY6IFCfL-bzyOKfsw/view?usp=sharing): model trained on mot20 train set
 
 
 Please put all the pretrained models to *./model_zoo*, and the PVTv2 model in *.model_zoo/pvtv2_backbone*
