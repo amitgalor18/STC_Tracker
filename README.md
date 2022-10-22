@@ -2,7 +2,7 @@
 
 **[[Paper](https://arxiv.org/abs/TBD)]** <br />
 
-Results on MOT17:
+##Results on MOT17:
 <div align="center">
   <img src="https://github.com/amitgalor18/STC_Tracker/raw/main/bubble_mot17.png" width="600px" />
 </div>
@@ -19,6 +19,12 @@ Algorithm flowchart:
 
 }
 ```
+
+## Results examples:
+
+https://user-images.githubusercontent.com/46008959/197331505-b6ffc6eb-ad4d-4ea5-8f7b-f67891c0b38c.mp4
+
+https://user-images.githubusercontent.com/46008959/197331524-700992c2-af2c-4993-9c3d-a8af84e02dc0.mp4
 
 ## Environment Preparation 
 
@@ -159,6 +165,10 @@ cd STC_Tracker
 python ./tracking/mot20_pub_test.py --data_dir=YourPathTo/MOT20/
 ```
 
+You may also run the inference on a single file from the dataset, e.g.:
+```
+python ./tracking/mot17_private.py --data_dir YourPathTo/MOT17/ --output_dir mot17_results_dir_name --custom MOT17-02-SDP
+```
 
 
 ## MOTChallenge Results
