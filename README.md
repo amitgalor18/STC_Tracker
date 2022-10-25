@@ -2,14 +2,15 @@
 
 **[[Paper](https://arxiv.org/abs/TBD)]** <br />
 
-##Results on MOT17:
+## Results on MOT17 and MOT20 compared to transformer-based trackers:
 <div align="center">
-  <img src="https://github.com/amitgalor18/STC_Tracker/raw/main/bubble_mot17.png" width="600px" />
+  <img src="https://github.com/amitgalor18/STC_Tracker/raw/main/dubblebubble.png" width="1000px" />
 </div>
+(as of October 2022)
 
-Algorithm flowchart:
+## Algorithm flowchart:
 <div align="center">
-  <img src="https://github.com/amitgalor18/STC_Tracker/raw/main/flowchart_v2.PNG" width="1200px" />
+  <img src="https://github.com/amitgalor18/STC_Tracker/raw/main/flowchart_v5.PNG" width="1200px" />
 </div>
 
 ## Bibtex
