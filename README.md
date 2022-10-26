@@ -1,5 +1,8 @@
 ## Strong-TransCenter: Improved Multi-Object Tracking based on Transformers with Dense Representations <br />
 
+[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/strong-transcenter-improved-multi-object/multiple-object-tracking-with-transformer-on)](https://paperswithcode.com/sota/multiple-object-tracking-with-transformer-on?p=strong-transcenter-improved-multi-object)
+
+
 **[[Paper](https://arxiv.org/abs/2210.13570)]** <br />
 
 ## Results on MOT17 and MOT20 compared to transformer-based trackers:
