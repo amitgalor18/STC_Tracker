@@ -1,6 +1,6 @@
 ## Strong-TransCenter: Improved Multi-Object Tracking based on Transformers with Dense Representations <br />
 
-**[[Paper](https://arxiv.org/abs/TBD)]** <br />
+**[[Paper](https://arxiv.org/abs/2210.13570)]** <br />
 
 ## Results on MOT17 and MOT20 compared to transformer-based trackers:
 <div align="center">
@@ -16,8 +16,22 @@
 ## Bibtex
 **If you find this code useful, please star the project and consider citing:** <br />
 ```
-@misc{
-
+@misc{https://doi.org/10.48550/arxiv.2210.13570,
+  doi = {10.48550/ARXIV.2210.13570},
+  
+  url = {https://arxiv.org/abs/2210.13570},
+  
+  author = {Galor, Amit and Orfaig, Roy and Bobrovsky, Ben-Zion},
+  
+  keywords = {Computer Vision and Pattern Recognition (cs.CV), FOS: Computer and information sciences, FOS: Computer and information sciences},
+  
+  title = {Strong-TransCenter: Improved Multi-Object Tracking based on Transformers with Dense Representations},
+  
+  publisher = {arXiv},
+  
+  year = {2022},
+  
+  copyright = {arXiv.org perpetual, non-exclusive license}
 }
 ```
 
