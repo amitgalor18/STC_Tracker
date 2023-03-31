@@ -54,7 +54,7 @@ conda env create -n <env_name> -f eTransCenter.yml
 ```
 Alternatively, you can use the added 'requirements.txt':
 ```
-pip install requirements.txt
+pip install -r requirements.txt
 ```
 *Make sure to install the correct torch and torchvision versions matching your CUDA version from the pytorch website: [https://pytorch.org/get-started/previous-versions/]
 
