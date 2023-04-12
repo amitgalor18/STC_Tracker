@@ -49,7 +49,6 @@ torch.set_grad_enabled(False)
 import time
 from StrongSORT.AFLink.AppFreeLink import *
 from StrongSORT.GSI import GSInterpolation
-from BOTSORT.tracker.gmc import GMC
 
 
 torch.backends.cudnn.benchmark = True
@@ -238,7 +237,7 @@ def main(tracktor):
         return tuple(batch)
     data_loader = DataLoader(ds, 1, shuffle=False, drop_last=False, num_workers=8,
                              pin_memory=True, collate_fn=collate_fn)
-
+ 
 
     models = [
     #  "./model_zoo/MOT17_coco.pth",

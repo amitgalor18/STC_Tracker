@@ -352,6 +352,7 @@ class PyramidVisionTransformerV2(nn.Module):
 
     def init_weights(self, pretrained=None):
         if isinstance(pretrained, str):
+            os.getcwd()
             pretrained_weights = torch.load(pretrained, map_location='cpu')
             self.load_state_dict(pretrained_weights, strict=False)
 

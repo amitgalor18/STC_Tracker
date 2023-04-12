@@ -37,8 +37,8 @@ tracktor:
     reid_iou_threshold: 0.1 # was 0.1
     
     #fast ReID params
-    fast_reid_config: /workspace/TransCenterV2/fast_reid/configs/MOT20/sbs_S50.yml #/workspace/TransCenterV2/fast_reid/configs/MOT17/sbs_S50.yml
-    fast_reid_weights: /workspace/TransCenterV2/model_zoo/mot20_sbs_S50.pth #/workspace/TransCenterV2/model_zoo/mot17_sbs_S50.pth
+    fast_reid_config: /workspace/STC_Tracker/fast_reid/configs/MOT17/sbs_S50.yml #/workspace/TransCenterV2/fast_reid/configs/MOT17/sbs_S50.yml
+    fast_reid_weights: /workspace/STC_Tracker/model_zoo/mot17_sbs_S50.pth #/workspace/TransCenterV2/model_zoo/mot17_sbs_S50.pth
     device: gpu
     sim_threshold: 0.4 #embedding gaussians show 0.2-0.25 is better than 0.5, but were made for 0-1 range and not 0-2
     iou_threshold: 0.8
