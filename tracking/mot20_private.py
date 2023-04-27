@@ -188,7 +188,7 @@ def main(tracktor):
     main_args.match_thresh = tracktor['tracker']["match_thresh"]
     main_args.clip = True
     main_args.fuse_scores = False
-    main_args.iou_recover = False
+    main_args.iou_recover = True
 
     model, criterion, postprocessors = build_model(main_args)
     n_parameters = sum(p.numel() for p in model.parameters())
