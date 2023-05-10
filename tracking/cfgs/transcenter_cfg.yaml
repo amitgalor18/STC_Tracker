@@ -14,7 +14,7 @@ tracktor:
 
   tracker:
     track_thresh: 0.3 # was 0.3
-    match_thresh: 0.9
+    match_thresh: 0.9 #was 0.9
     motion_model:
       enabled: False
       # average velocity over last n_steps steps
@@ -37,9 +37,9 @@ tracktor:
     reid_iou_threshold: 0.1 # was 0.1
     
     #fast ReID params
-    fast_reid_config: /workspace/STC_Tracker/fast_reid/configs/MOT20/sbs_S50.yml #/workspace/STC_Tracker/fast_reid/configs/MOT17/sbs_S50.yml
-    fast_reid_weights: /workspace/STC_Tracker/model_zoo/mot20_sbs_S50.pth #/workspace/STC_Tracker/model_zoo/mot17_sbs_S50.pth
+    fast_reid_config: /workspace/STC_Tracker/fast_reid/configs/MOT17/sbs_S50.yml #/workspace/STC_Tracker/fast_reid/configs/MOT17/sbs_S50.yml
+    fast_reid_weights: /workspace/STC_Tracker/model_zoo/mot17_sbs_S50.pth #/workspace/STC_Tracker/model_zoo/mot17_sbs_S50.pth
     device: gpu
     sim_threshold: 0.4 #embedding gaussians show 0.2-0.25 is better than 0.5, but were made for 0-1 range and not 0-2
-    iou_threshold: 0.8
+    iou_threshold: 1.0 # was 0.8, for mot17 best results are 1.0-1.1
 

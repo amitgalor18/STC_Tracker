@@ -121,15 +121,15 @@ class KalmanFilter(object):
             self._std_weight_velocity * mean[3]] 
         
         # std_pos = [
-        #     0,
-        #     0,
-        #     0,
-        #     0]
+        #     self._std_weight_position,
+        #     self._std_weight_position,
+        #     self._std_weight_position,
+        #     self._std_weight_position]
         # std_vel = [
-        #     self._std_weight_velocity*100,
-        #     self._std_weight_velocity*100,
-        #     self._std_weight_velocity*100,
-        #     self._std_weight_velocity*100]
+        #     self._std_weight_velocity*(1+mean[2]),
+        #     self._std_weight_velocity*(1+mean[3]),
+        #     self._std_weight_velocity*(1+mean[2]),
+        #     self._std_weight_velocity*(1+mean[3])]
         motion_cov = np.diag(np.square(np.r_[std_pos, std_vel])) # Q matrix
 
         mean = np.dot(self._motion_mat, mean)
@@ -169,10 +169,10 @@ class KalmanFilter(object):
         #     self._std_weight_position * mean[2],
         #     self._std_weight_position * mean[3]]
         std = [
-            self._std_weight_position * 2*fwhm[0],
-            self._std_weight_position * 2*fwhm[1],
-            self._std_weight_position * 2*fwhm[0],
-            self._std_weight_position * 2*fwhm[1]]
+            fwhm[0],
+            fwhm[1],
+            fwhm[0],
+            fwhm[1]]
 
         # if opt.NSA:
             # std = [(1 - confidence) * x for x in std]
