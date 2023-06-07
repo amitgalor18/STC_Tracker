@@ -44,7 +44,12 @@ class KalmanFilter(object):
         for i in range(ndim):
             self._motion_mat[i, ndim + i] = dt
 
-        self._update_mat = np.eye(ndim, 2 * ndim)
+        # self._update_mat = np.eye(ndim, 2 * ndim)
+        #H update matrix from x1,y1,x2,y2 to x,y,w,h
+        I = np.eye(ndim//2)
+        Z = np.zeros((ndim,ndim))
+        H = np.block([[I,-0.5*I],[I,0.5*I]])
+        self._update_mat = np.concatenate((H,Z),axis=1) #Hk from 4x4 to 4x8
 
         # Motion and observation uncertainty are chosen relative to the current
         # state estimate. These weights control the amount of uncertainty in
@@ -58,13 +63,13 @@ class KalmanFilter(object):
         Parameters
         ----------
         measurement : ndarray
-            Bounding box coordinates (x, y, a, h) with center position (x, y),
+            Bounding box coordinates (x, y, w, h) with center position (x, y),
             aspect ratio a, and height h.
 
         Returns
         -------
         (ndarray, ndarray)
-            Returns the mean vector (8 dimensional) and covariance matrix (8x8
+            Returns the mean vector (8 dimensional) and covariance matrix P (8x8
             dimensional) of the new track. Unobserved velocities are initialized
             to 0 mean.
 
@@ -74,13 +79,13 @@ class KalmanFilter(object):
         mean = np.r_[mean_pos, mean_vel]
 
         std = [
+            2 * self._std_weight_position * measurement[2],
             2 * self._std_weight_position * measurement[3],
+            2 * self._std_weight_position * measurement[2],
             2 * self._std_weight_position * measurement[3],
-            1e-2,
-            2 * self._std_weight_position * measurement[3],
+            10 * self._std_weight_velocity * measurement[2],
             10 * self._std_weight_velocity * measurement[3],
-            10 * self._std_weight_velocity * measurement[3],
-            1e-5,
+            10 * self._std_weight_velocity * measurement[2],
             10 * self._std_weight_velocity * measurement[3]]
         covariance = np.diag(np.square(std))
         return mean, covariance
@@ -105,16 +110,27 @@ class KalmanFilter(object):
 
         """
         std_pos = [
+            self._std_weight_position * mean[2],
             self._std_weight_position * mean[3],
-            self._std_weight_position * mean[3],
-            1e-2,
+            self._std_weight_position * mean[2],
             self._std_weight_position * mean[3]]
         std_vel = [
+            self._std_weight_velocity * mean[2],
             self._std_weight_velocity * mean[3],
-            self._std_weight_velocity * mean[3],
-            1e-5,
-            self._std_weight_velocity * mean[3]]
-        motion_cov = np.diag(np.square(np.r_[std_pos, std_vel]))
+            self._std_weight_velocity * mean[2],
+            self._std_weight_velocity * mean[3]] 
+        
+        # std_pos = [
+        #     self._std_weight_position,
+        #     self._std_weight_position,
+        #     self._std_weight_position,
+        #     self._std_weight_position]
+        # std_vel = [
+        #     self._std_weight_velocity*(1+mean[2]),
+        #     self._std_weight_velocity*(1+mean[3]),
+        #     self._std_weight_velocity*(1+mean[2]),
+        #     self._std_weight_velocity*(1+mean[3])]
+        motion_cov = np.diag(np.square(np.r_[std_pos, std_vel])) # Q matrix
 
         mean = np.dot(self._motion_mat, mean)
         if mean[3]<0:
@@ -125,7 +141,7 @@ class KalmanFilter(object):
 
         return mean, covariance
 
-    def project(self, mean, covariance, confidence=.0):
+    def project(self, mean, covariance, fwhm):
         """Project state distribution to measurement space.
 
         Parameters
@@ -134,7 +150,7 @@ class KalmanFilter(object):
             The state's mean vector (8 dimensional array).
         covariance : ndarray
             The state's covariance matrix (8x8 dimensional).
-        confidence: (dyh) 检测框置信度
+        fwhm: full width half maximum (2x1), correlated to detection moise covariance
         Returns
         -------
         (ndarray, ndarray)
@@ -142,11 +158,21 @@ class KalmanFilter(object):
             estimate.
 
         """
+        # std = [
+        #     self._std_weight_position * mean[2],
+        #     self._std_weight_position * mean[3],
+        #     self._std_weight_position * mean[2],
+        #     self._std_weight_position * mean[3]]
+        # std = [
+        #     self._std_weight_position * (mean[2],
+        #     self._std_weight_position * mean[3],
+        #     self._std_weight_position * mean[2],
+        #     self._std_weight_position * mean[3]]
         std = [
-            self._std_weight_position * mean[3],
-            self._std_weight_position * mean[3],
-            1e-1,
-            self._std_weight_position * mean[3]]
+            fwhm[0],
+            fwhm[1],
+            fwhm[0],
+            fwhm[1]]
 
         # if opt.NSA:
             # std = [(1 - confidence) * x for x in std]
@@ -158,7 +184,7 @@ class KalmanFilter(object):
             self._update_mat, covariance, self._update_mat.T))
         return mean, covariance + innovation_cov
 
-    def update(self, mean, covariance, measurement, confidence=.0):
+    def update(self, mean, covariance, measurement, fwhm):
         """Run Kalman filter correction step.
 
         Parameters
@@ -171,7 +197,7 @@ class KalmanFilter(object):
             The 4 dimensional measurement vector (x, y, a, h), where (x, y)
             is the center position, a the aspect ratio, and h the height of the
             bounding box.
-        confidence: (dyh)检测框置信度
+        fwhm: full width half maximum - correlated to the detection noise covariance
         Returns
         -------
         (ndarray, ndarray)
@@ -181,7 +207,7 @@ class KalmanFilter(object):
         # assert measurement[:,3] > 1, "Error: track height is very small!"
         # assert measurement[:,2] > 0, "Error: track aspect ratio is negative!"
 
-        projected_mean, projected_cov = self.project(mean, covariance, confidence)
+        projected_mean, projected_cov = self.project(mean, covariance, fwhm)
 
         chol_factor, lower = scipy.linalg.cho_factor(
             projected_cov, lower=True, check_finite=False)

@@ -175,7 +175,7 @@ def main(tracktor):
     main_args.tracking = True
     main_args.noprehm = True
     device = torch.device(main_args.device)
-    ds = GenericDataset_val(root=main_args.data_dir, valset='val', select_seq='', train_ratio=1)
+    ds = GenericDataset_val(root=main_args.data_dir, valset='test', select_seq='', train_ratio=1)
 
     ds.default_resolution[0], ds.default_resolution[1] = main_args.input_h, main_args.input_w
     print(main_args.input_h, main_args.input_w)
@@ -184,7 +184,7 @@ def main(tracktor):
     main_args.input_res = max(main_args.input_h, main_args.input_w)
     main_args.output_res = max(main_args.output_h, main_args.output_w)
     # threshold
-    main_args.track_thresh = 0.4
+    main_args.track_thresh = 0.5
     main_args.match_thresh = tracktor['tracker']["match_thresh"]
     main_args.clip = True
     main_args.fuse_scores = False
@@ -262,7 +262,7 @@ def main(tracktor):
                 # reset tracker #
                 tracker.reset()
                 # update inactive patience according to framerate
-                seq_info_path = os.path.join(main_args.data_dir, "train", video_name, 'seqinfo.ini')
+                seq_info_path = os.path.join(main_args.data_dir, "test", video_name, 'seqinfo.ini')
                 print("seq_info_path ", seq_info_path)
                 assert os.path.exists(seq_info_path)
                 with open(seq_info_path, 'r') as f:

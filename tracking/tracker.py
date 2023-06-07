@@ -115,7 +115,7 @@ class Tracker:
         self.pre_img_features = None
         self.pre_encoder_pos_encoding = None
         self.flow = None
-        self.det_thresh = main_args.track_thresh + 0.1 
+        self.det_thresh = main_args.track_thresh + 0.1 # (track_thresh=0.3 and det_thresh=0.4) 
         
         self.tracks = []
         #for plotting kalman error:
@@ -189,6 +189,7 @@ class Tracker:
                 new_det_features[i].view(1, -1),
                 self.inactive_patience,
                 self.max_features_num,
+                detection_list_remained[i].fwhm,
                 self.motion_model_cfg['n_steps'] if self.motion_model_cfg['n_steps'] > 0 else 1,
                 feat=detection_list_remained[i].curr_feat
             ))
@@ -388,7 +389,7 @@ class Tracker:
         for i, t in enumerate(self.tracks):
             if i in u_track:  # inactive
                 # t.pos = t.last_pos[-1]
-                t.pos = t.xyah_to_tlbr(t.mean[:4])
+                t.pos = t.xywh_to_tlbr(t.mean[:4])
                 assert (t.pos[:,2:]>t.pos[:,:2]).all(), "wrong pos: {}".format(t.pos)
                 self.inactive_tracks += [t]
             else: # keep
@@ -497,22 +498,45 @@ class Tracker:
             out_boxes[:, 0::2] = torch.clamp(out_boxes[:, 0::2], 0, orig_w-1)
             out_boxes[:, 1::2] = torch.clamp(out_boxes[:, 1::2], 0, orig_h-1)
 
+        # calculate fwhm for each detection
+        _, h, w = batch['img'][0].shape
+        fwhms = np.zeros((out_boxes.shape[0],2))
+        hm_np = output['hm'][0,0,:].cpu().numpy()
+        hm_r = cv2.resize(hm_np, dsize=(w, h), interpolation=cv2.INTER_CUBIC)
+        for i in range(out_boxes.shape[0]):
+            xc = int(out_boxes[i,0]+out_boxes[i,2])//2
+            yc = int(out_boxes[i,1]+out_boxes[i,3])//2   
+            if 0<xc<hm_r.shape[1] and 0<yc<hm_r.shape[0]:
+                fwhms[i]=self.calculate_fwhm(hm_r, xc, yc)
         #create detection objects
         detection_list = []
         for i in range(out_boxes.shape[0]):
-            detection_list.append(Detection(out_boxes[i,:], out_scores[i], feature=None))
+            detection_list.append(Detection(out_boxes[i,:], out_scores[i], feature=None, fwhm=fwhms[i]))
         
 
         # post processing #
 
         return out_boxes, out_scores, pre2cur_cts, mypos, reid_cts, outputs['reid'][0], detection_list
+    
+    def calculate_fwhm(self, image, x_peak, y_peak):
+    # Calculate FWHM in x direction
+        x_profile = image[:, x_peak]
+        x_sigma = np.sqrt(np.sum((x_profile - image[y_peak, x_peak] / 2) ** 2) / len(x_profile))
+        x_fwhm = 2 * np.sqrt(2 * np.log(2)) * x_sigma
+
+    # Calculate FWHM in y direction
+        y_profile = image[y_peak, :]
+        y_sigma = np.sqrt(np.sum((y_profile - image[y_peak, x_peak] / 2) ** 2) / len(y_profile))
+        y_fwhm = 2 * np.sqrt(2 * np.log(2)) * y_sigma
+
+        return x_fwhm, y_fwhm
 
     def fuse_motion(kf, cost_matrix, tracks, detections, only_position=False, lambda_=0.98):
         if cost_matrix.size == 0:
             return cost_matrix
         gating_dim = 2 if only_position else 4
         gating_threshold = chi2inv95[gating_dim]
-        measurements = np.asarray([det.to_xyah() for det in detections])
+        measurements = np.asarray([det.to_xywh() for det in detections])
         for row, track in enumerate(tracks):
             gating_distance = kf.gating_distance(
                 track.mean, track.covariance, measurements, only_position, metric='maha')
@@ -933,7 +957,7 @@ class Tracker:
 class Track(object):
     """This class contains all necessary for every individual track."""
 
-    def __init__(self, pos, score, track_id, features, inactive_patience, max_features_num, mm_steps, n_init=3,max_age=30, feat=None):
+    def __init__(self, pos, score, track_id, features, inactive_patience, max_features_num, fwhm, mm_steps, n_init=3,max_age=30, feat=None):
         self.id = track_id
         self.pos = pos
         self.score = score
@@ -960,7 +984,10 @@ class Track(object):
         self._max_age = max_age
 
         self.kf = KalmanFilter()
-        self.mean, self.covariance = self.kf.initiate(self.tlbr_to_xyah(pos).reshape(4))
+        self.mean, self.covariance = self.kf.initiate(self.tlbr_to_xywh(pos).reshape(4))
+        # self.mean, self.covariance = self.kf.initiate(self.pos)
+
+        self.fwhm = fwhm
 
     def update_features(self, feat):
         feat /= np.linalg.norm(feat)
@@ -1031,6 +1058,17 @@ class Track(object):
         return xyah.T #kalman filter expects a column vector
     
     @staticmethod
+    def tlbr_to_xywh(tlbr):
+        tlbr = tlbr.cpu().numpy()
+        xywh = np.zeros_like(tlbr)
+        xywh[:, 0] = (tlbr[:, 0] + tlbr[:, 2]) / 2
+        xywh[:, 1] = (tlbr[:, 1] + tlbr[:, 3]) / 2
+        xywh[:, 2] = tlbr[:, 2] - tlbr[:, 0]
+        xywh[:, 3] = tlbr[:, 3] - tlbr[:, 1]
+
+        return xywh.T #kalman filter expects a column vector
+    
+    @staticmethod
     def xyah_to_tlbr(xyah):
         xyah = np.asarray(xyah)
         tlbr = np.zeros_like(xyah)
@@ -1039,6 +1077,18 @@ class Track(object):
         tlbr[1] = xyah[1] - xyah[3] / 2
         tlbr[2] = xyah[0] + width / 2
         tlbr[3] = xyah[1] + xyah[3] / 2
+        tlbr = tlbr.reshape(1, 4)
+        tlbr = torch.from_numpy(tlbr).float().cuda()
+        return tlbr
+    
+    @staticmethod
+    def xywh_to_tlbr(xywh):
+        xywh = np.asarray(xywh)
+        tlbr = np.zeros_like(xywh)
+        tlbr[0] = xywh[0] - xywh[2] / 2
+        tlbr[1] = xywh[1] - xywh[3] / 2
+        tlbr[2] = xywh[0] + xywh[2] / 2
+        tlbr[3] = xywh[1] + xywh[3] / 2
         tlbr = tlbr.reshape(1, 4)
         tlbr = torch.from_numpy(tlbr).float().cuda()
         return tlbr
@@ -1059,10 +1109,13 @@ class Track(object):
         detection : The associated detection object.
 
         """
-        self.mean, self.covariance = self.kf.update(self.mean.reshape(8), self.covariance, detection.to_xyah().reshape(1,4), detection.confidence)
+        # self.mean, self.covariance = self.kf.update(self.mean.reshape(8), self.covariance, detection.to_xywh().reshape(1,4), detection.fwhm)
+        self.mean, self.covariance = self.kf.update(self.mean.reshape(8), self.covariance, detection.tlbr.reshape(1,4), detection.fwhm) 
+
 
         if detection.curr_feat is not None and not is_2nd_assignment:
             self.update_features(detection.curr_feat)
+            self.fwhm = detection.fwhm
         # feature = detection.feature / np.linalg.norm(detection.feature) #TODO: declare detection dict with feature key
         # if opt.EMA:
         #     smooth_feat = opt.EMA_alpha * self.features[-1] + (1 - opt.EMA_alpha) * feature
@@ -1090,19 +1143,22 @@ class Detection(object): #from strongSORT
 
     Attributes
     ----------
-    tlwh : ndarray
-        Bounding box in format `(top left x, top left y, width, height)`.
+    tlbr : ndarray
+        Bounding box in format `(top left x, top left y, bottom right x, bottom right y)`.
     confidence : ndarray
         Detector confidence score.
+    fwhm : ndarray
+        Full Width Half Maximum - the "diameter" of the detection heatmap [x,y]
     feature : ndarray | NoneType
         A feature vector that describes the object contained in this image.
 
     """
 
-    def __init__(self, tlbr, confidence, feature=None):
+    def __init__(self, tlbr, confidence, fwhm, feature=None):
         self.tlbr = tlbr.cpu().numpy() #np.asarray(tlwh, dtype=np.float)
         self.confidence = float(confidence)
         self.curr_feat = np.asarray(feature, dtype=np.float32)
+        self.fwhm = fwhm
         # self.curr_feat=self.feature #pointer to current feature
 
 
@@ -1117,3 +1173,14 @@ class Detection(object): #from strongSORT
         xyah[3] = (tlbr[3]-tlbr[1]) #height
         xyah[2] = (tlbr[2]-tlbr[0]) / xyah[3] # width / height
         return xyah
+    
+    def to_xywh(self):
+        """Convert bounding box to format `(center x, center y, width, height)`.
+        """
+        tlbr = self.tlbr.copy()
+        xywh = tlbr
+        xywh[0] = (tlbr[0] + tlbr[2]) / 2
+        xywh[1] = (tlbr[1] + tlbr[3]) / 2
+        xywh[2] = tlbr[2] - tlbr[0]
+        xywh[3] = tlbr[3] - tlbr[1]
+        return xywh
